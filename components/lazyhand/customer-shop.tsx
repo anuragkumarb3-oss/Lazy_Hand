@@ -140,9 +140,15 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
         </div>
       </header>
 
-      <section aria-label="Shop by section" className="mx-auto mt-4 grid max-w-md grid-cols-2 gap-2 px-4">
-        <a href="/categories" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-center text-sm font-semibold"><Store className="size-4 text-brand-deep" aria-hidden="true" />General shops</a>
-        <a href="/restaurants" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-center text-sm font-semibold"><ShoppingBag className="size-4 text-brand-deep" aria-hidden="true" />Restaurants</a>
+      <section aria-label="Shop by section" className="mx-auto mt-4 grid max-w-md grid-cols-2 gap-3 px-4">
+        <a href="/categories" className="group flex min-h-20 items-center justify-center gap-2.5 rounded-3xl border border-line bg-white px-3 text-center text-sm font-bold shadow-[0_5px_18px_-14px_#6B4A34] transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md active:scale-[0.98]">
+          <span className="grid size-10 place-items-center rounded-2xl bg-peach text-brand-deep"><Store className="size-5" aria-hidden="true" /></span>
+          Stores
+        </a>
+        <a href="/restaurants" className="group flex min-h-20 items-center justify-center gap-2.5 rounded-3xl border border-line bg-white px-3 text-center text-sm font-bold shadow-[0_5px_18px_-14px_#6B4A34] transition hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md active:scale-[0.98]">
+          <span className="grid size-10 place-items-center rounded-2xl bg-[#FCEEDB] text-brand-deep"><ShoppingBag className="size-5" aria-hidden="true" /></span>
+          Restaurants
+        </a>
       </section>
 
       <p role="status" className="mx-auto max-w-md px-4 pt-3 text-xs leading-5 text-muted-ink">
@@ -170,14 +176,14 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
           <>
             <section aria-labelledby="bestsellers-heading" className="mt-5">
               <div className="flex items-end justify-between">
-                <h2 id="bestsellers-heading" className="text-base font-bold">Bestsellers</h2>
+                <h2 id="bestsellers-heading" className="text-base font-bold">Shop by category</h2>
                 <a href="/categories" className="text-xs font-semibold text-brand-deep">Browse all</a>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2.5">
                 {liveCategories.slice(0, 9).map(category => (
-                  <a key={category.id} href="/categories" className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-line bg-white px-2 py-3 text-center transition active:scale-95">
-                    {category.image_url ? <img src={category.image_url} alt="" className="size-12 rounded-xl object-cover" /> : <span className="grid size-12 place-items-center rounded-xl bg-peach text-sm font-bold text-brand-deep">{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}
-                    <span className="text-[11px] font-medium leading-4">{category.name}</span>
+                  <a key={category.id} href="/categories" className="flex min-h-28 flex-col items-center justify-center gap-2.5 rounded-3xl border border-line/90 bg-white px-2 py-3 text-center shadow-[0_5px_18px_-14px_#6B4A34] transition duration-200 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md active:scale-[0.97]">
+                    {category.image_url ? <img src={category.image_url} alt="" className="size-12 rounded-2xl object-cover" /> : <span className="grid size-12 place-items-center rounded-2xl bg-peach text-sm font-bold text-brand-deep">{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}
+                    <span className="text-xs font-semibold leading-4">{category.name}</span>
                   </a>
                 ))}
                 {liveCategories.length === 0 && <p className="col-span-3 rounded-xl border border-dashed border-line bg-white p-4 text-center text-xs text-muted-ink">Categories are loading or none are currently visible.</p>}
@@ -225,7 +231,22 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
 }
 
 export function CategoriesScreen() {
-  return <div className="flex min-h-svh flex-col gap-4 px-4 pb-40 pt-[max(env(safe-area-inset-top),20px)]"><header><h1 className="text-lg font-bold">Explore categories</h1><p className="mt-1 text-xs text-muted-ink">Browse editable categories from local shops or explore restaurant menus.</p></header><a href="/categories" className="flex min-h-20 items-center justify-between rounded-2xl border border-line bg-white p-4"><span><span className="block font-semibold">General shops</span><span className="mt-1 block text-xs text-muted-ink">Groceries, dairy, daily essentials and more</span></span><Store className="size-5 text-brand-deep" aria-hidden="true" /></a><a href="/restaurants" className="flex min-h-20 items-center justify-between rounded-2xl border border-line bg-white p-4"><span><span className="block font-semibold">Restaurants</span><span className="mt-1 block text-xs text-muted-ink">Browse separate restaurant menus</span></span><ShoppingBag className="size-5 text-brand-deep" aria-hidden="true" /></a></div>
+  return (
+    <div className="flex min-h-svh flex-col gap-4 px-4 pb-40 pt-[max(env(safe-area-inset-top),20px)]">
+      <header>
+        <h1 className="text-lg font-bold">Explore</h1>
+        <p className="mt-1 text-xs text-muted-ink">Choose what you&apos;re looking for.</p>
+      </header>
+      <a href="/categories" className="flex min-h-24 items-center justify-between rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34] transition hover:border-brand/40 hover:shadow-md">
+        <span><span className="block font-semibold">Stores</span><span className="mt-1 block text-xs text-muted-ink">Groceries, daily essentials and more</span></span>
+        <span className="grid size-11 place-items-center rounded-2xl bg-peach text-brand-deep"><Store className="size-5" aria-hidden="true" /></span>
+      </a>
+      <a href="/restaurants" className="flex min-h-24 items-center justify-between rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34] transition hover:border-brand/40 hover:shadow-md">
+        <span><span className="block font-semibold">Restaurants</span><span className="mt-1 block text-xs text-muted-ink">Browse restaurant menus</span></span>
+        <span className="grid size-11 place-items-center rounded-2xl bg-[#FCEEDB] text-brand-deep"><ShoppingBag className="size-5" aria-hidden="true" /></span>
+      </a>
+    </div>
+  )
 }
 
 export function StoreScreen({ shopId, onBack }: { shopId: string; onBack: () => void }) {

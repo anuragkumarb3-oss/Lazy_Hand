@@ -28,7 +28,7 @@ import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, St
 
 function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)]">
+    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line/80 bg-white/95 px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur">
       <BackButton onClick={onBack} />
       <h1 className="text-base font-bold">{title}</h1>
     </header>
@@ -40,7 +40,7 @@ function DeliveryGoal({ itemTotal }: { itemTotal: number }) {
   const progress = Math.min(100, (itemTotal / FREE_DELIVERY_THRESHOLD) * 100)
 
   return (
-    <section className="rounded-2xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5" aria-label="Free delivery progress">
+        <section className="rounded-3xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5" aria-label="Free delivery progress">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold text-[#166534]" role="status">
           {remaining > 0 ? `Add ${rupee(remaining)} more for free delivery` : 'You unlocked free delivery'}
@@ -203,7 +203,7 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
   )
 }
 
-export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
+export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceOrder, onSignIn }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void; canPlaceOrder: boolean; onSignIn: () => void }) {
   const { cartTotal, cartCount, cartLines, cart, shopById, profile, placeOrder } = useLazyHand()
   const [error, setError] = useState('')
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null)
@@ -252,7 +252,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
     <div className="flex min-h-svh flex-col pb-28">
       <TopBar title="Checkout" onBack={onBack} />
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pt-4">
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="deliver-heading">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="deliver-heading">
           <div className="flex items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-peach text-brand-deep">
               <Home className="size-5" aria-hidden="true" />
@@ -279,7 +279,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
 
         <DeliveryGoal itemTotal={cartTotal} />
 
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="pay-heading">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="pay-heading">
           <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
           <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
             <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
@@ -291,7 +291,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           </div>
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]">
           <h2 className="mb-3 text-sm font-bold">
             Order summary <span className="font-normal text-muted-ink">({cartCount} items)</span>
           </h2>
@@ -313,7 +313,14 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
-          <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}`}</PrimaryButton>
+          {canPlaceOrder ? (
+            <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}`}</PrimaryButton>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-center text-xs leading-5 text-muted-ink">Guest preview only. Sign in to save and place this order.</p>
+              <PrimaryButton onClick={onSignIn}>Sign in to place order</PrimaryButton>
+            </div>
+          )}
         </div>
       </div>
     </div>

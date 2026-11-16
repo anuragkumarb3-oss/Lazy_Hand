@@ -28,9 +28,14 @@ type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'p
 
 const initialLocation: LocationState = { status: 'idle', area: '', message: '' }
 
+function isPhoneAuthUnavailable(message: string) {
+  const normalized = message.toLowerCase()
+  return normalized.includes('phone provider') || normalized.includes('phone sign') || normalized.includes('sms provider') || normalized.includes('signups not allowed for otp')
+}
+
 function friendlyAuthError(message: string, action: 'send' | 'verify') {
   const normalized = message.toLowerCase()
-  if (normalized.includes('phone provider') || normalized.includes('phone sign') || normalized.includes('sms provider')) {
+  if (isPhoneAuthUnavailable(message)) {
     return 'Phone verification is not enabled for this Supabase project yet. Enable phone sign-in and configure SMS delivery to test it.'
   }
   if (normalized.includes('rate limit') || normalized.includes('too many')) {
@@ -98,7 +103,7 @@ function useLocation() {
   return { location, request }
 }
 
-function LazyHandShell() {
+function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const { profile, setProfile, setOrders, cartCount } = useLazyHand()
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
@@ -182,7 +187,13 @@ function LazyHandShell() {
       phone: `+91${phone}`,
       options: { shouldCreateUser: false },
     })
-    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    if (error) {
+      if (previewMode && isPhoneAuthUnavailable(error.message)) {
+        enterPreviewGuest()
+        return
+      }
+      throw new Error(friendlyAuthError(error.message, 'send'))
+    }
     setLoginPhone(phone)
     setPendingProfile(null)
     setAfterOtp('customer')
@@ -194,7 +205,13 @@ function LazyHandShell() {
       phone: `+91${newProfile.phone}`,
       options: { shouldCreateUser: true, data: { name: newProfile.name } },
     })
-    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    if (error) {
+      if (previewMode && isPhoneAuthUnavailable(error.message)) {
+        enterPreviewGuest()
+        return
+      }
+      throw new Error(friendlyAuthError(error.message, 'send'))
+    }
     setPendingProfile(newProfile)
     setLoginPhone(newProfile.phone)
     setAfterOtp(newProfile.role)
@@ -256,6 +273,14 @@ function LazyHandShell() {
     setStage('loading')
     window.setTimeout(() => setStage('app'), 850)
     window.scrollTo({ top: 0 })
+  }
+
+  const enterPreviewGuest = () => {
+    setProfile({ ...emptyProfile })
+    setPendingProfile(null)
+    setAuthenticatedUserId(null)
+    setAuthenticatedPhone('')
+    enterApp('customer')
   }
 
   const go = (next: Overlay) => {
@@ -337,7 +362,7 @@ function LazyHandShell() {
     body = <CartScreen onBack={() => go(null)} onCheckout={() => go({ kind: 'payment' })} onBrowse={() => { setTab('home'); go(null) }} />
   } else if (overlay?.kind === 'payment') {
     showNav = false
-    body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} />
+      body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} canPlaceOrder={Boolean(authenticatedUserId)} onSignIn={() => setStage('login')} />
   } else if (overlay?.kind === 'track') {
     showNav = false
     body = <TrackingScreen orderId={overlay.orderId} onBack={() => { setTab('orders'); go(null) }} onViewAs={role => enterApp(role)} />
@@ -365,6 +390,7 @@ function LazyHandShell() {
   return (
     <div className="mx-auto min-h-svh w-full max-w-md bg-cream text-ink">
       {sellerRequestSubmitted && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-3 text-center text-sm text-[#9A3412]">Shopkeeper request received. You can start listing after an administrator approves your account.</p>}
+      {!authenticatedUserId && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-2.5 text-center text-xs font-medium text-[#9A3412]">Guest browsing — sign in to place orders and view saved orders.</p>}
       {body}
       {showNav && (
         <>
@@ -390,10 +416,10 @@ function LazyHandShell() {
   )
 }
 
-export default function LazyHandWebApp() {
+export default function LazyHandWebApp({ previewMode = false }: { previewMode?: boolean }) {
   return (
     <LazyHandProvider>
-      <LazyHandShell />
+      <LazyHandShell previewMode={previewMode} />
     </LazyHandProvider>
   )
 }
