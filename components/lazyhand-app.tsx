@@ -14,29 +14,30 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import * as Location from 'expo-location'
+import PartnerDashboard from './partner-dashboard'
 
-type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider'
+type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider' | 'sellerPreview' | 'riderPreview'
 type Role = 'Customer' | 'Shopkeeper' | 'Delivery partner'
 type IconName = keyof typeof Ionicons.glyphMap
 
 const palette = {
-  ink: '#17352D',
-  forest: '#155B45',
-  leaf: '#2D795C',
-  lime: '#D8F36A',
-  paper: '#F7F7F0',
+  ink: '#252C37',
+  forest: '#C2410C',
+  leaf: '#9A3412',
+  lime: '#F97316',
+  paper: '#FAF7F2',
   card: '#FFFFFF',
-  muted: '#75827C',
-  line: '#E5EAE2',
-  saffron: '#F5A341',
-  softGreen: '#EAF2E9',
-  danger: '#A94635',
+  muted: '#727984',
+  line: '#ECE6DE',
+  saffron: '#FFB84A',
+  softGreen: '#FFF0E2',
+  danger: '#B93832',
 }
 
 function BrandMark({ size = 44 }: { size?: number }) {
   return (
     <View style={[styles.brandMark, { width: size, height: size, borderRadius: size * 0.34 }]}>
-      <Ionicons name="hand-left" size={size * 0.49} color={palette.forest} />
+      <Ionicons name="hand-left" size={size * 0.49} color={palette.card} />
     </View>
   )
 }
@@ -62,7 +63,7 @@ function PrimaryButton({
       onPress={onPress}
       style={({ pressed }) => [styles.primaryButton, (pressed || disabled) && styles.buttonDimmed]}
     >
-      {loading ? <ActivityIndicator color={palette.ink} /> : icon ? <Ionicons name={icon} size={19} color={palette.ink} /> : null}
+      {loading ? <ActivityIndicator color={palette.card} /> : icon ? <Ionicons name={icon} size={19} color={palette.card} /> : null}
       <Text style={styles.primaryButtonText}>{title}</Text>
     </Pressable>
   )
@@ -264,7 +265,7 @@ export default function LazyHandApp() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <Header title="Choose your path" onBack={() => enter('location')} />
-      <Animated.View style={[styles.screenBody, contentStyle]}>
+      <Animated.ScrollView style={[styles.screenBody, contentStyle]} contentContainerStyle={styles.roleBody}>
         <Text style={styles.eyebrow}>MADE FOR YOUR NEIGHBORHOOD</Text>
         <Text style={styles.pageTitle}>How will you{ '\n' }use LazyHand?</Text>
         <Text style={styles.bodyText}>Pick a starting role. Shop and rider applications require separate review before going live.</Text>
@@ -284,7 +285,11 @@ export default function LazyHandApp() {
         })}
         <View style={styles.flexSpacer} />
         <PrimaryButton title={role === 'Customer' ? 'Explore LazyHand' : role === 'Shopkeeper' ? 'Register a shop' : 'Apply as a rider'} icon="arrow-forward" onPress={() => enter(role === 'Customer' ? 'home' : role === 'Shopkeeper' ? 'shop' : 'rider')} />
-      </Animated.View>
+        <View style={styles.previewLinks}>
+          <Pressable accessibilityRole="button" onPress={() => enter('sellerPreview')} style={styles.previewLink}><Ionicons name="storefront-outline" size={15} color={palette.leaf} /><Text style={styles.previewLinkText}>Seller app preview</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={() => enter('riderPreview')} style={styles.previewLink}><Ionicons name="bicycle-outline" size={15} color={palette.leaf} /><Text style={styles.previewLinkText}>Rider app preview</Text></Pressable>
+        </View>
+      </Animated.ScrollView>
     </SafeAreaView>
   )
 
@@ -314,6 +319,10 @@ export default function LazyHandApp() {
         </ScrollView>
       </SafeAreaView>
     )
+  }
+
+  if (screen === 'sellerPreview' || screen === 'riderPreview') {
+    return <PartnerDashboard kind={screen === 'sellerPreview' ? 'seller' : 'rider'} onBack={() => enter('role')} />
   }
 
   if (screen === 'orders') return (
@@ -381,7 +390,7 @@ const styles = StyleSheet.create({
   welcome: { flex: 1, paddingHorizontal: 25, paddingTop: 14, paddingBottom: 14, justifyContent: 'space-between' },
   welcomeTop: { flex: 1, justifyContent: 'center' },
   welcomeBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: { backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center' },
+  brandMark: { backgroundColor: palette.forest, alignItems: 'center', justifyContent: 'center' },
   wordmark: { color: palette.ink, fontSize: 21, fontWeight: '900', letterSpacing: -0.7 },
   welcomeGraphic: { height: 124, alignItems: 'center', justifyContent: 'center', marginTop: 9, marginBottom: 11 },
   graphicOrbit: { position: 'absolute', height: 116, width: 116, borderRadius: 58, backgroundColor: palette.softGreen, borderWidth: 1, borderColor: '#DFE9DE' },
@@ -394,16 +403,17 @@ const styles = StyleSheet.create({
   welcomeDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 290 },
   welcomeActions: { gap: 12, paddingTop: 20 },
   privacyNote: { color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 12 },
-  primaryButton: { minHeight: 54, paddingHorizontal: 18, borderRadius: 17, backgroundColor: palette.lime, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
-  primaryButtonText: { color: palette.ink, fontSize: 14, fontWeight: '900', letterSpacing: 0.1 },
+  primaryButton: { minHeight: 54, paddingHorizontal: 18, borderRadius: 17, backgroundColor: palette.forest, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  primaryButtonText: { color: palette.card, fontSize: 14, fontWeight: '900', letterSpacing: 0.1 },
   buttonDimmed: { opacity: 0.65, transform: [{ scale: 0.985 }] },
   quietButton: { minHeight: 46, paddingHorizontal: 13, borderRadius: 14, backgroundColor: palette.softGreen, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  quietButtonText: { color: palette.forest, fontSize: 12, fontWeight: '800' },
+  quietButtonText: { color: palette.leaf, fontSize: 12, fontWeight: '800' },
   header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 19, paddingVertical: 8 },
   headerTitle: { flex: 1, color: palette.ink, fontSize: 16, fontWeight: '900' },
   headerSpacer: { width: 44 },
   iconButton: { width: 42, height: 42, borderRadius: 15, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   screenBody: { flex: 1, paddingHorizontal: 22, paddingTop: 12 },
+  roleBody: { flexGrow: 1, paddingBottom: 12 },
   locationBody: { paddingBottom: 20 },
   pageTitle: { color: palette.ink, fontSize: 29, lineHeight: 33, fontWeight: '900', letterSpacing: -0.9, marginTop: 4 },
   bodyText: { color: palette.muted, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 16 },
@@ -419,11 +429,14 @@ const styles = StyleSheet.create({
   flexSpacer: { flex: 1, minHeight: 16 },
   roleCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, marginTop: 9, borderRadius: 18, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line },
   roleCardSelected: { backgroundColor: palette.softGreen, borderColor: palette.leaf },
-  roleIcon: { width: 43, height: 43, borderRadius: 14, backgroundColor: '#F3F6EF', alignItems: 'center', justifyContent: 'center' },
+  roleIcon: { width: 43, height: 43, borderRadius: 14, backgroundColor: '#FFF7EE', alignItems: 'center', justifyContent: 'center' },
   roleIconSelected: { backgroundColor: palette.lime },
   roleCopy: { flex: 1 },
   roleName: { color: palette.ink, fontSize: 13, fontWeight: '900' },
   roleDescription: { color: palette.muted, fontSize: 10, lineHeight: 14, marginTop: 3 },
+  previewLinks: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 18 },
+  previewLink: { minHeight: 39, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 12, backgroundColor: palette.softGreen },
+  previewLinkText: { color: palette.leaf, fontSize: 9, fontWeight: '800' },
   formBody: { paddingHorizontal: 21, paddingTop: 16, paddingBottom: 25 },
   alertText: { color: palette.danger, fontSize: 12, lineHeight: 17, marginTop: 11, textAlign: 'center' },
   mainBody: { flex: 1, alignItems: 'flex-start', justifyContent: 'center', paddingHorizontal: 23, paddingBottom: 25 },
@@ -438,14 +451,14 @@ const styles = StyleSheet.create({
   locationPillLabel: { color: palette.muted, fontSize: 8, fontWeight: '900', letterSpacing: 1.2 },
   locationPillValue: { color: palette.ink, fontSize: 12, fontWeight: '800', marginTop: 2 },
   homeHero: { marginTop: 14, padding: 17, minHeight: 218, borderRadius: 24, backgroundColor: palette.forest, overflow: 'hidden' },
-  heroDecor: { position: 'absolute', top: -24, right: -16, width: 132, height: 132, borderRadius: 66, backgroundColor: '#267457', alignItems: 'center', justifyContent: 'center' },
+  heroDecor: { position: 'absolute', top: -24, right: -16, width: 132, height: 132, borderRadius: 66, backgroundColor: '#FF923A', alignItems: 'center', justifyContent: 'center' },
   heroCircle: { width: 66, height: 66, borderRadius: 23, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-8deg' }] },
   heroSpark: { position: 'absolute', left: 26, bottom: 19, width: 29, height: 29, borderRadius: 11, backgroundColor: palette.saffron, alignItems: 'center', justifyContent: 'center' },
-  heroEyebrow: { color: '#D8EBC4', fontSize: 8, fontWeight: '900', letterSpacing: 1.5, marginTop: 6 },
+  heroEyebrow: { color: '#FFF0DD', fontSize: 8, fontWeight: '900', letterSpacing: 1.5, marginTop: 6 },
   heroTitle: { color: '#FFFFFF', fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.6, marginTop: 7 },
-  heroBody: { color: '#E1EEE7', fontSize: 11, lineHeight: 16, maxWidth: 215, marginTop: 5 },
+  heroBody: { color: '#FFF5E9', fontSize: 11, lineHeight: 16, maxWidth: 215, marginTop: 5 },
   hubBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 7, marginTop: 12 },
-  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.lime },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#21A05D' },
   hubBadgeText: { color: '#FFFFFF', fontSize: 7, fontWeight: '900', letterSpacing: 0.45 },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 19, marginBottom: 10 },
   sectionTitle: { color: palette.ink, fontSize: 15, fontWeight: '900' },
