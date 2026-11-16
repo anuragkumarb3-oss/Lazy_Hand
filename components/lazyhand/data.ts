@@ -102,6 +102,7 @@ export type Order = {
 }
 
 export const DEFAULT_DELIVERY_DISTANCE_KM = 4
+export const FREE_DELIVERY_THRESHOLD = 299
 
 export const DELIVERY_SLABS = [
   { label: '0–2 km', maxDistanceKm: 2, customerFee: 29, riderPayout: 20 },
@@ -131,11 +132,20 @@ export function platformFeeFor(itemTotal: number) {
 
 export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false) {
   const slab = deliverySlabFor(distanceKm)
-  const deliveryFee = itemTotal <= 0 || shopSelfDelivers ? 0 : slab.customerFee
-  const platformFee = platformFeeFor(itemTotal)
+  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers ? 0 : slab.customerFee
+  const qualifiesForFreeDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
+  const deliveryFee = qualifiesForFreeDelivery ? 0 : deliveryFeeBeforeDiscount
+  const deliveryDiscount = deliveryFeeBeforeDiscount - deliveryFee
+  const platformFeeBeforeDiscount = platformFeeFor(itemTotal)
+  const platformFee = platformFeeBeforeDiscount > 0 && platformFeeBeforeDiscount < 20 ? 0 : platformFeeBeforeDiscount
+  const platformDiscount = platformFeeBeforeDiscount - platformFee
   return {
     itemTotal,
+    deliveryFeeBeforeDiscount,
+    deliveryDiscount,
     deliveryFee,
+    platformFeeBeforeDiscount,
+    platformDiscount,
     platformFee,
     deliveryDistanceKm: distanceKm,
     riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
