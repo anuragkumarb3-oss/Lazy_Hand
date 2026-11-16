@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Bike, Check, ClipboardList, Eye, IndianRupee, MapPin, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
+import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { categories, RIDER_PAY_PER_TRIP, rupee, type CategoryId, type Order, type Product } from './data'
+import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
 
@@ -67,7 +67,7 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
 
 export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
   const { orders, products, shopById, toggleShopOpen, toggleStock, addProduct, updateProduct, setOrderStatus } = useLazyHand()
-  const [tab, setTab] = useState<'orders' | 'products' | 'account'>('products')
+  const [tab, setTab] = useState<'orders' | 'products' | 'calculator' | 'account'>('products')
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const shop = shopById[MANAGED_SHOP_ID]
@@ -141,6 +141,9 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
                       {order.customerName} · Cash on delivery
                     </p>
                     <OrderLines order={order} />
+                    <p className="mt-3 rounded-xl bg-[#FFF8F1] px-3 py-2 text-xs leading-5 text-brand-deep">
+                      Customer pays {rupee(order.total)} · seller receives {rupee(order.itemTotal)} · rider payout {rupee(order.riderPayout)} · LazyHand keeps {rupee(order.deliveryFee - order.riderPayout + order.platformFee)}
+                    </p>
                     <div className="mt-3 flex gap-2">
                       <SecondaryButton onClick={() => setOrderStatus(order.id, 'rejected')} className="h-10 text-xs text-[#B91C1C]">
                         <X className="size-4" aria-hidden="true" /> Decline
@@ -186,6 +189,8 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
             )}
           </>
         )}
+
+        {tab === 'calculator' && <SmartProfitCalculator />}
 
         {tab === 'products' && (
           <section aria-labelledby="products-heading" className="mt-4">
@@ -243,12 +248,181 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
         items={[
           { key: 'orders', label: 'Orders', Icon: ClipboardList, badge: incoming.length || undefined },
           { key: 'products', label: 'Products', Icon: Package },
+          { key: 'calculator', label: 'Profit', Icon: Calculator },
           { key: 'account', label: 'Account', Icon: UserRound },
         ]}
         active={tab}
         onSelect={setTab}
       />
     </div>
+  )
+}
+
+function SmartProfitCalculator() {
+  const [sellingPrice, setSellingPrice] = useState('399')
+  const [buyingCost, setBuyingCost] = useState('250')
+  const [distanceKm, setDistanceKm] = useState(DEFAULT_DELIVERY_DISTANCE_KM)
+  const [shopSelfDelivers, setShopSelfDelivers] = useState(false)
+  const slab = deliverySlabFor(distanceKm)
+  const sale = Math.max(0, Number(sellingPrice) || 0)
+  const cost = Math.max(0, Number(buyingCost) || 0)
+  const productProfit = sale - cost
+  const bill = billFor(sale, distanceKm, shopSelfDelivers)
+  const sellerTakeHome = productProfit
+  const deliveryContribution = bill.deliveryFee - bill.riderPayout
+  const lazyHandRevenue = deliveryContribution + bill.platformFee
+  const riderTransfer = Math.max(0, lazyHandRevenue)
+  const marginPercent = sale > 0 ? (sellerTakeHome / sale) * 100 : 0
+
+  return (
+    <section className="mt-4 flex flex-col gap-3 pb-4" aria-labelledby="profit-calculator-heading">
+      <div>
+        <h2 id="profit-calculator-heading" className="text-lg font-bold">Smart Profit Calculator</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-ink">Preview customer charges, rider pay and LazyHand revenue separately. No seller commission.</p>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Selling price
+            <span className="flex h-11 items-center rounded-xl border border-line bg-white px-3 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15">
+              <span aria-hidden="true">₹</span>
+              <input aria-label="Selling price in rupees" type="number" min="0" step="1" inputMode="numeric" value={sellingPrice} onChange={event => setSellingPrice(event.target.value)} className="w-full bg-transparent px-1 text-sm text-ink outline-none" />
+            </span>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Buying cost
+            <span className="flex h-11 items-center rounded-xl border border-line bg-white px-3 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15">
+              <span aria-hidden="true">₹</span>
+              <input aria-label="Buying cost in rupees" type="number" min="0" step="1" inputMode="numeric" value={buyingCost} onChange={event => setBuyingCost(event.target.value)} className="w-full bg-transparent px-1 text-sm text-ink outline-none" />
+            </span>
+          </label>
+        </div>
+        <fieldset className="mt-4">
+          <legend className="text-xs font-semibold">Shop-to-customer distance · up to 6 km</legend>
+          <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Delivery distance">
+            {DELIVERY_SLABS.map(option => {
+              const selected = distanceKm === option.maxDistanceKm
+              return <button key={option.label} type="button" role="radio" aria-checked={selected} onClick={() => setDistanceKm(option.maxDistanceKm)} className={cn('min-h-11 rounded-xl border px-2 text-left text-xs font-semibold transition', selected ? 'border-brand bg-[#FFF5EC] text-brand-deep' : 'border-line bg-white text-muted-ink')}>
+                <span className="block">{option.label}</span>
+                <span className="mt-0.5 block font-normal">Customer {rupee(option.customerFee)} · Rider {rupee(option.riderPayout)}</span>
+              </button>
+            })}
+          </div>
+        </fieldset>
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-cream p-3">
+          <span className="min-w-0 text-xs font-semibold leading-5">Shop handles delivery · free for customer</span>
+          <button type="button" role="switch" aria-checked={shopSelfDelivers} aria-label="Shop handles delivery for free" onClick={() => setShopSelfDelivers(value => !value)} className={cn('relative h-6 w-11 shrink-0 rounded-full transition', shopSelfDelivers ? 'bg-brand' : 'bg-[#C6C1BA]')}>
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all', shopSelfDelivers ? 'left-[22px]' : 'left-0.5')} />
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold">Three-party breakdown</h3>
+          <span className="rounded-full bg-[#DCFCE7] px-2.5 py-1 text-[10px] font-bold text-[#166534]">0% seller commission</span>
+        </div>
+        <dl className="mt-3 flex flex-col gap-2.5 text-sm">
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Product profit</dt><dd className="font-semibold">{rupee(productProfit)}</dd></div>
+          <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2.5 font-bold"><dt>Seller take-home</dt><dd>{rupee(sellerTakeHome)} <span className="text-xs font-medium text-muted-ink">({marginPercent.toFixed(1)}%)</span></dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Customer pays</dt><dd className="font-semibold">{rupee(bill.total)}{shopSelfDelivers && <span className="text-xs font-normal text-muted-ink"> · free delivery</span>}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee</dt><dd className="font-semibold">{rupee(bill.platformFee)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Delivery contribution</dt><dd className="font-semibold">{rupee(deliveryContribution)}</dd></div>
+          <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2 font-bold"><dt>LazyHand total revenue</dt><dd className="text-brand-deep">{rupee(lazyHandRevenue)}</dd></div>
+          <div className="flex justify-between gap-3 text-xs text-muted-ink"><dt>Delivery fee − rider payout</dt><dd>{rupee(bill.deliveryFee)} − {rupee(bill.riderPayout)}</dd></div>
+        </dl>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <h3 className="text-sm font-bold">Customer platform-fee slabs</h3>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          {PLATFORM_FEE_SLABS.map(option => <div key={option.label} className="flex justify-between gap-2"><dt className="text-muted-ink">{option.label}</dt><dd className="font-semibold">{rupee(option.fee)}</dd></div>)}
+        </dl>
+        <p className="mt-3 text-[10px] leading-4 text-muted-ink">These are customer-facing fees, not seller commissions. They are based on the order value before delivery.</p>
+      </div>
+
+      <div className="rounded-2xl bg-ink p-4 text-white">
+        <div className="flex items-center gap-2"><Banknote className="size-4 text-[#FFC178]" aria-hidden="true" /><h3 className="text-sm font-bold">Illustrative COD settlement · 9:00 PM</h3></div>
+        {shopSelfDelivers ? (
+          <ol className="mt-3 flex flex-col gap-2 text-xs leading-5 text-white/85">
+            <li className="flex justify-between gap-3"><span>Customer pays shop</span><strong>{rupee(bill.total)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Shop keeps item value</span><strong>{rupee(sale)}</strong></li>
+            <li className="flex justify-between gap-3 border-t border-white/15 pt-2"><span>LazyHand platform fee</span><strong>{rupee(bill.platformFee)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Rider payout</span><strong>{rupee(0)}</strong></li>
+          </ol>
+        ) : (
+          <ol className="mt-3 flex flex-col gap-2 text-xs leading-5 text-white/85">
+            <li className="flex justify-between gap-3"><span>Rider collects from customer</span><strong>{rupee(bill.total)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Rider keeps distance-based payout</span><strong>−{rupee(bill.riderPayout)}</strong></li>
+            <li className="flex justify-between gap-3 border-t border-white/15 pt-2"><span>Rider remits delivery spread + platform fee</span><strong>{rupee(riderTransfer)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Seller receives item value</span><strong>{rupee(sale)}</strong></li>
+            <li className="flex justify-between gap-3 border-t border-white/15 pt-2 font-bold text-white"><span>LazyHand revenue before costs</span><strong>{rupee(lazyHandRevenue)}</strong></li>
+          </ol>
+        )}
+        <p className="mt-3 text-[10px] leading-4 text-white/60">Illustrative only. No funds move in this preview. Gateway charges, taxes, refunds, rewards and operating costs are not included.</p>
+      </div>
+
+      <div className="rounded-xl border border-[#FED7AA] bg-[#FFF7ED] p-3 text-xs leading-5 text-[#9A3412]">
+        Rider pay is tied to the delivery-distance slab and never reduced on a later order. Model pickup travel, return distance, wait time and real fuel costs before treating contribution as profit.
+      </div>
+    </section>
+  )
+}
+
+function RiderEarningsSimulator() {
+  const [deliveriesValue, setDeliveriesValue] = useState('15')
+  const [workDaysValue, setWorkDaysValue] = useState('26')
+  const [averagePayoutValue, setAveragePayoutValue] = useState('26')
+  const [dailyExpenseValue, setDailyExpenseValue] = useState('60')
+  const deliveriesPerDay = Math.max(0, Math.floor(Number(deliveriesValue) || 0))
+  const workDays = Math.max(0, Math.min(31, Math.floor(Number(workDaysValue) || 0)))
+  const averagePayout = Math.max(0, Number(averagePayoutValue) || 0)
+  const dailyExpenses = Math.max(0, Number(dailyExpenseValue) || 0)
+  const dailyGross = deliveriesPerDay * averagePayout
+  const monthlyGross = dailyGross * workDays
+  const dailyBonus = deliveriesPerDay >= 15 ? 70 : deliveriesPerDay >= 10 ? 40 : deliveriesPerDay >= 5 ? 20 : 0
+  const monthlyAfterExpenses = (dailyGross - dailyExpenses) * workDays
+  const monthlyWithRewards = (dailyGross + dailyBonus - dailyExpenses) * workDays
+
+  return (
+    <section className="mt-4 rounded-2xl border border-line bg-white p-4" aria-labelledby="rider-simulator-heading">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brand-deep">Illustrative, not guaranteed</p>
+        <h3 id="rider-simulator-heading" className="mt-1 text-base font-bold">Monthly earning simulator</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-ink">Estimate take-home using your delivery pace, payout and daily costs.</p>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Deliveries per day
+          <input aria-label="Deliveries per day" type="number" min="0" step="1" inputMode="numeric" value={deliveriesValue} onChange={event => setDeliveriesValue(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+        </label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Working days / month
+          <input aria-label="Working days per month" type="number" min="0" max="31" step="1" inputMode="numeric" value={workDaysValue} onChange={event => setWorkDaysValue(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+        </label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Avg. rider payout / order
+          <span className="flex h-11 items-center rounded-xl border border-line bg-white px-3 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><span aria-hidden="true">₹</span><input aria-label="Average rider payout per order in rupees" type="number" min="0" step="1" inputMode="numeric" value={averagePayoutValue} onChange={event => setAveragePayoutValue(event.target.value)} className="w-full bg-transparent px-1 text-sm text-ink outline-none" /></span>
+        </label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Fuel + maintenance / day
+          <span className="flex h-11 items-center rounded-xl border border-line bg-white px-3 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><span aria-hidden="true">₹</span><input aria-label="Daily fuel and maintenance estimate in rupees" type="number" min="0" step="1" inputMode="numeric" value={dailyExpenseValue} onChange={event => setDailyExpenseValue(event.target.value)} className="w-full bg-transparent px-1 text-sm text-ink outline-none" /></span>
+        </label>
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-2">
+        <Stat label="Daily delivery gross" value={rupee(dailyGross)} />
+        <Stat label="Monthly delivery gross" value={rupee(monthlyGross)} />
+        <Stat label="Monthly after expenses" value={rupee(monthlyAfterExpenses)} />
+        <Stat label="With milestone rewards" value={rupee(monthlyWithRewards)} />
+      </dl>
+      <div className="mt-3 rounded-xl bg-[#FFF7ED] p-3">
+        <div className="flex items-center justify-between gap-2 text-xs"><span className="font-semibold text-[#9A3412]">Estimated daily reward at this pace</span><strong className="text-brand-deep">+{rupee(dailyBonus)}</strong></div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          {[{ deliveries: 5, reward: 20 }, { deliveries: 10, reward: 40 }, { deliveries: 15, reward: 70 }].map(milestone => (
+            <div key={milestone.deliveries} className={cn('rounded-lg border px-1.5 py-2', deliveriesPerDay >= milestone.deliveries ? 'border-brand bg-white' : 'border-transparent bg-white/60')}>
+              <p className="text-xs font-bold">{milestone.deliveries} trips</p>
+              <p className="mt-0.5 text-[10px] text-muted-ink">+{rupee(milestone.reward)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="mt-3 text-[10px] leading-4 text-muted-ink">Bonuses are cumulative milestones: 15 trips pays ₹70 total, not ₹130. Rewards are paid once per day. Estimates exclude taxes, phone costs, waiting time, pickup/return travel and other personal expenses; demand is not guaranteed.</p>
+    </section>
   )
 }
 
@@ -326,6 +500,8 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
   const available = orders.filter(o => o.status === 'ready' && !o.riderName)
   const active = orders.filter(o => o.riderName === riderName && ['ready', 'picked'].includes(o.status))
   const completed = orders.filter(o => o.riderName === riderName && o.status === 'delivered')
+  const totalEarned = completed.reduce((total, order) => total + order.riderPayout, 0)
+  const averagePayout = completed.length ? totalEarned / completed.length : deliverySlabFor(DEFAULT_DELIVERY_DISTANCE_KM).riderPayout
 
   return (
     <div className="pb-24">
@@ -345,8 +521,8 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
           <>
             <dl className="mt-4 grid grid-cols-3 gap-2">
               <Stat label="Trips today" value={String(completed.length)} />
-              <Stat label="Earned" value={rupee(completed.length * RIDER_PAY_PER_TRIP)} />
-              <Stat label="Per trip" value={rupee(RIDER_PAY_PER_TRIP)} />
+              <Stat label="Earned" value={rupee(totalEarned)} />
+              <Stat label="Avg / trip" value={rupee(averagePayout)} />
             </dl>
 
             {active.map(order => {
@@ -396,7 +572,7 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                     <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-bold">{shopById[order.shopId].name}</p>
-                        <p className="text-sm font-bold text-[#15803D]">+{rupee(RIDER_PAY_PER_TRIP)}</p>
+                        <p className="text-sm font-bold text-[#15803D]">+{rupee(order.riderPayout)}</p>
                       </div>
                       <p className="text-xs text-muted-ink">
                         #{order.id} · drop at {order.address || 'nearby'}
@@ -417,9 +593,9 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
             <h2 id="earnings-heading" className="text-sm font-bold">Earnings</h2>
             <div className="mt-2 rounded-2xl bg-ink p-5 text-white">
               <p className="text-xs text-white/70">Today</p>
-              <p className="text-3xl font-bold">{rupee(completed.length * RIDER_PAY_PER_TRIP)}</p>
+              <p className="text-3xl font-bold">{rupee(totalEarned)}</p>
               <p className="mt-1 text-xs text-white/70">
-                {completed.length} trips × {rupee(RIDER_PAY_PER_TRIP)}
+                {completed.length} delivered trips · payout varies by distance
               </p>
             </div>
             <ul className="mt-3 flex flex-col gap-2">
@@ -429,13 +605,14 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                   <span>
                     #{o.id} · {shopById[o.shopId].name}
                   </span>
-                  <span className="font-semibold text-[#15803D]">+{rupee(RIDER_PAY_PER_TRIP)}</span>
+                  <span className="font-semibold text-[#15803D]">+{rupee(o.riderPayout)}</span>
                 </li>
               ))}
             </ul>
           </section>
         )}
 
+        {tab === 'earnings' && <RiderEarningsSimulator />}
         {tab === 'account' && <PartnerAccount role="Delivery partner" onExit={onExit} />}
       </div>
       <BottomNav

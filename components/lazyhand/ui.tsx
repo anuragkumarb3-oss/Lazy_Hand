@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { useState, type ComponentProps, type ReactNode } from 'react'
-import { ChevronLeft, Minus, Plus, type LucideIcon } from 'lucide-react'
+import { Bike, ChevronLeft, Minus, Plus, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { categoryById, type CategoryId } from './data'
 
@@ -34,6 +34,29 @@ export function Screen({ children, className }: { children: ReactNode; className
   return (
     <main className={cn('mx-auto flex min-h-svh w-full max-w-md flex-col bg-cream text-ink', className)}>
       {children}
+    </main>
+  )
+}
+
+export function LoadingScreen({ title = 'Getting your LazyHand ready', detail = 'Finding the right route for you…' }: { title?: string; detail?: string }) {
+  return (
+    <main className="flex min-h-svh items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_38%,#FFF0E2_0%,#FAF7F2_52%,#F5EEE5_100%)] px-6 text-ink" role="status" aria-live="polite" aria-label={title}>
+      <div className="w-full max-w-xs text-center">
+        <div className="relative mx-auto grid size-32 place-items-center rounded-[2rem] bg-white shadow-[0_20px_60px_-28px_#C2410C66]">
+          <span className="absolute inset-3 rounded-[1.5rem] border border-brand/10" />
+          <span className="absolute size-[5.5rem] rounded-full border border-dashed border-brand/30 motion-safe:animate-[lh-orbit_8s_linear_infinite]" />
+          <span className="absolute size-2 rounded-full bg-[#FFC178] shadow-[0_0_16px_#F97316] motion-safe:animate-[lh-loading-pulse_1.4s_ease-in-out_infinite]" />
+          <span className="relative grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-brand to-[#FFA94D] text-white shadow-lg motion-safe:animate-[lh-loading-float_1.8s_ease-in-out_infinite]">
+            <Bike className="size-7" strokeWidth={2.2} aria-hidden="true" />
+          </span>
+        </div>
+        <h1 className="mt-7 text-lg font-bold tracking-tight">{title}</h1>
+        <p className="mt-2 text-sm text-muted-ink">{detail}</p>
+        <div className="mx-auto mt-6 h-1.5 w-44 overflow-hidden rounded-full bg-[#E9DED2]" aria-hidden="true">
+          <span className="block h-full w-2/5 rounded-full bg-gradient-to-r from-brand to-[#FFC178] motion-safe:animate-[lh-loading-progress_1.25s_ease-in-out_infinite]" />
+        </div>
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-deep">Local shops, closer</p>
+      </div>
     </main>
   )
 }
