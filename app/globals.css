@@ -153,6 +153,34 @@
   }
 }
 
+@theme {
+  --color-brand: #f97316;
+  --color-brand-deep: #c2410c;
+  --color-cream: #faf7f2;
+  --color-ink: #252c37;
+  --color-muted-ink: #6b717b;
+  --color-line: #ece6de;
+  --color-peach: #fff0e2;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@keyframes lh-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes lh-ping {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
