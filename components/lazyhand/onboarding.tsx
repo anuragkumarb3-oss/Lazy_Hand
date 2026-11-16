@@ -42,14 +42,33 @@ export function validatePhone(phone: string) {
   return ''
 }
 
-export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLogin: () => void }) {
+export function WelcomeScreen({ onStart, onLogin, onShopkeeperUnlock }: { onStart: () => void; onLogin: () => void; onShopkeeperUnlock: () => void }) {
+  const [logoTaps, setLogoTaps] = useState(0)
+  const [shopkeeperUnlocked, setShopkeeperUnlocked] = useState(false)
+
+  const tapLogo = () => {
+    if (shopkeeperUnlocked) return
+    const next = logoTaps + 1
+    setLogoTaps(next)
+    if (next >= 10) {
+      setShopkeeperUnlocked(true)
+      onShopkeeperUnlock()
+    }
+  }
+
   return (
     <main className="min-h-svh bg-gradient-to-b from-[#F76B1C] via-[#FA8A2E] to-[#FFB24A] text-white">
       <div className="mx-auto flex min-h-svh w-full max-w-md flex-col px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-[max(env(safe-area-inset-top),24px)]">
         <section className="flex flex-1 flex-col items-center justify-center text-center">
-          <div className="w-64 rounded-[28px] border border-white/80 bg-white px-4 py-5 shadow-[0_24px_48px_-24px_#7C2D12]">
+          <button
+            type="button"
+            onClick={tapLogo}
+            aria-label="LazyHand logo. Tap ten times to unlock shopkeeper signup"
+            className="w-64 rounded-[28px] border border-white/80 bg-white px-4 py-5 shadow-[0_24px_48px_-24px_#7C2D12]"
+          >
             <Logo priority className="w-full" />
-          </div>
+          </button>
+          {shopkeeperUnlocked && <p role="status" className="mt-3 rounded-full bg-white/20 px-3 py-1.5 text-xs font-medium">Shopkeeper signup unlocked</p>}
           <h1 className="mt-7 text-4xl font-bold tracking-tight text-balance">LazyHand</h1>
           <p className="mt-2 max-w-64 text-sm leading-6 text-white/90 text-pretty">Your neighborhood shops, delivered to your door.</p>
         </section>
@@ -155,56 +174,6 @@ function OrbitAnimation({ active, done }: { active: boolean; done: boolean }) {
         </span>
       </div>
     </div>
-  )
-}
-
-const roleOptions: { id: Role; title: string; description: string; Icon: typeof Store }[] = [
-  { id: 'customer', title: 'Customer', description: 'Order groceries, dairy & snacks from nearby shops', Icon: UserRound },
-  { id: 'shopkeeper', title: 'Shopkeeper', description: 'List your products and receive orders', Icon: Store },
-  { id: 'rider', title: 'Delivery Partner', description: 'Pick up local shop orders and track sample trips', Icon: Bike },
-]
-
-export function RoleScreen({ role, onSelect, onContinue, onBack }: { role: Role; onSelect: (role: Role) => void; onContinue: () => void; onBack: () => void }) {
-  return (
-    <Screen className="px-5 pb-6 pt-[max(env(safe-area-inset-top),20px)]">
-      <header>
-        <BackButton onClick={onBack} />
-      </header>
-      <h1 className="mt-6 text-3xl font-bold tracking-tight text-balance">How will you use LazyHand?</h1>
-      <p className="mt-2 text-sm leading-6 text-muted-ink">Choose what you want to do first. Customers browse and order; shopkeepers manage a shop and prepare orders; delivery partners pick up and deliver orders. You can switch roles later.</p>
-      <div role="radiogroup" aria-label="Choose how you will use LazyHand" className="mt-6 flex flex-col gap-3">
-        {roleOptions.map(({ id, title, description, Icon }) => {
-          const selected = role === id
-          return (
-            <button
-              key={id}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => onSelect(id)}
-              className={cn(
-                'flex items-center gap-3.5 rounded-2xl border bg-white p-4 text-left transition active:scale-[0.99]',
-                selected ? 'border-brand bg-[#FFF5EC] ring-2 ring-brand/15' : 'border-line',
-              )}
-            >
-              <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', selected ? 'bg-brand text-white' : 'bg-peach text-brand-deep')}>
-                <Icon className="size-5" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold">{title}</span>
-                <span className="mt-0.5 block text-xs leading-5 text-muted-ink">{description}</span>
-              </span>
-              <span className={cn('grid size-5 shrink-0 place-items-center rounded-full border', selected ? 'border-brand bg-brand text-white' : 'border-[#CFCAC3] text-transparent')}>
-                <Check className="size-3" aria-hidden="true" />
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      <div className="mt-auto pt-8">
-        <PrimaryButton onClick={onContinue}>Continue</PrimaryButton>
-      </div>
-    </Screen>
   )
 }
 
@@ -402,17 +371,12 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
         <Field id="signup-village" label="Village / Tola / Ward" Icon={MapPin} autoComplete="address-level3" placeholder="Rampur, Ward 4" value={form.village} onChange={e => update('village', e.target.value)} error={errors.village} />
         <Field id="signup-landmark" label="Nearest landmark" optional Icon={Navigation} placeholder="Near Shiv Mandir" value={form.landmark} onChange={e => update('landmark', e.target.value)} />
 
-        <ChipGroup
-          id="signup-role"
-          label="I am a"
-          options={[
-            { value: 'customer', label: 'Customer' },
-            { value: 'shopkeeper', label: 'Shopkeeper' },
-            { value: 'rider', label: 'Rider' },
-          ]}
-          value={form.role}
-          onChange={v => update('role', v as Role)}
-        />
+        <div className="rounded-xl border border-line bg-[#FFF8F1] p-3 text-sm">
+          <p className="font-semibold">{form.role === 'shopkeeper' ? 'Shopkeeper account' : 'Customer account'}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-ink">
+            {form.role === 'shopkeeper' ? 'List your products and receive orders.' : 'Order groceries, dairy & snacks from nearby shops. You can add another role later.'}
+          </p>
+        </div>
 
         {form.role === 'shopkeeper' && (
           <>
@@ -438,7 +402,10 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
           />
         )}
 
-        <PrimaryButton type="submit" className="mt-2">Create account</PrimaryButton>
+        <PrimaryButton type="submit" className="mt-2">{form.role === 'shopkeeper' ? 'Create shopkeeper account' : 'Create customer account'}</PrimaryButton>
+        <p className="text-center text-xs leading-5 text-muted-ink">
+          Want to deliver for LazyHand? <a href="mailto:help@lazyhand.app?subject=Delivery%20partner%20request" className="font-semibold text-brand-deep underline underline-offset-2">Talk to support</a>
+        </p>
         <p className="text-center text-[11px] leading-5 text-muted-ink">Fields marked Required are needed to set up your demo profile. Your delivery area helps show nearby shops. This preview does not save your details to an account.</p>
       </form>
       <p className="mt-6 text-center text-sm text-muted-ink">

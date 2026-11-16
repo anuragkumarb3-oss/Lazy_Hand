@@ -7,7 +7,6 @@ import {
   LocationScreen,
   LoginScreen,
   OtpScreen,
-  RoleScreen,
   SignupScreen,
   WelcomeScreen,
   type LocationState,
@@ -18,7 +17,7 @@ import { RiderDashboard, ShopkeeperDashboard } from './lazyhand/partners'
 import { emptyProfile, LazyHandProvider, useLazyHand } from './lazyhand/store'
 import { BottomNav } from './lazyhand/ui'
 
-type Stage = 'welcome' | 'location' | 'role' | 'login' | 'otp' | 'signup' | 'app'
+type Stage = 'welcome' | 'location' | 'login' | 'otp' | 'signup' | 'app'
 type Tab = 'home' | 'categories' | 'orders' | 'profile'
 type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'payment' } | { kind: 'track'; orderId: string } | null
 
@@ -110,10 +109,10 @@ function LazyHandShell() {
           if (location.status === 'idle') request()
         }}
         onLogin={() => setStage('login')}
+        onShopkeeperUnlock={() => setPendingRole('shopkeeper')}
       />
     )
-  if (stage === 'location') return <LocationScreen location={location} onRetry={request} onContinue={() => setStage('role')} onBack={() => setStage('welcome')} />
-  if (stage === 'role') return <RoleScreen role={pendingRole} onSelect={setPendingRole} onContinue={() => setStage('signup')} onBack={() => setStage('location')} />
+  if (stage === 'location') return <LocationScreen location={location} onRetry={request} onContinue={() => setStage('signup')} onBack={() => setStage('welcome')} />
   if (stage === 'login')
     return (
       <LoginScreen
@@ -126,7 +125,10 @@ function LazyHandShell() {
           setProfile({ ...emptyProfile })
           enterApp('customer')
         }}
-        onSignup={() => setStage('role')}
+        onSignup={() => {
+          setPendingRole('customer')
+          setStage('signup')
+        }}
         onBack={() => setStage('welcome')}
       />
     )
@@ -152,7 +154,7 @@ function LazyHandShell() {
           setStage('otp')
         }}
         onLogin={() => setStage('login')}
-        onBack={() => setStage('role')}
+        onBack={() => setStage('location')}
       />
     )
 
