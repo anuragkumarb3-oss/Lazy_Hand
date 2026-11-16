@@ -37,6 +37,8 @@ type LazyHandState = {
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
   toggleShopOpen: (shopId: string) => void
   toggleStock: (productId: string) => void
+  addProduct: (product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => void
+  updateProduct: (product: Product) => void
   updatePrice: (productId: string, price: number) => void
 }
 
@@ -156,6 +158,15 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     setProducts(list => list.map(p => (p.id === productId ? { ...p, inStock: !p.inStock } : p)))
   }, [])
 
+  const addProduct = useCallback((product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => {
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    setProducts(list => [{ ...product, id, shopId: product.shopId ?? 'gupta' }, ...list])
+  }, [])
+
+  const updateProduct = useCallback((product: Product) => {
+    setProducts(list => list.map(item => (item.id === product.id ? product : item)))
+  }, [])
+
   const updatePrice = useCallback((productId: string, price: number) => {
     setProducts(list => list.map(p => (p.id === productId ? { ...p, price } : p)))
   }, [])
@@ -181,6 +192,8 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     setOrderStatus,
     toggleShopOpen,
     toggleStock,
+    addProduct,
+    updateProduct,
     updatePrice,
   }
 

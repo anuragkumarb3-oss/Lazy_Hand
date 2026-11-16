@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { Bike, Check, ClipboardList, IndianRupee, MapPin, Package, Power, Store, UserRound, X } from 'lucide-react'
+import { useState, type FormEvent } from 'react'
+import { Bike, Check, ClipboardList, Eye, IndianRupee, MapPin, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { RIDER_PAY_PER_TRIP, rupee, type Order } from './data'
+import { categories, RIDER_PAY_PER_TRIP, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
 
@@ -66,8 +66,10 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
 }
 
 export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, products, shopById, toggleShopOpen, toggleStock, setOrderStatus } = useLazyHand()
-  const [tab, setTab] = useState<'orders' | 'products' | 'account'>('orders')
+  const { orders, products, shopById, toggleShopOpen, toggleStock, addProduct, updateProduct, setOrderStatus } = useLazyHand()
+  const [tab, setTab] = useState<'orders' | 'products' | 'account'>('products')
+  const [showProductForm, setShowProductForm] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const shop = shopById[MANAGED_SHOP_ID]
   const shopOrders = orders.filter(o => o.shopId === MANAGED_SHOP_ID && o.placedAt === 'Today')
   const incoming = shopOrders.filter(o => o.status === 'placed')
@@ -75,6 +77,12 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
   const handedOver = shopOrders.filter(o => ['ready', 'picked', 'delivered'].includes(o.status))
   const revenue = shopOrders.filter(o => o.status !== 'rejected').reduce((s, o) => s + o.itemTotal, 0)
   const myProducts = products.filter(p => p.shopId === MANAGED_SHOP_ID)
+  const inStockCount = myProducts.filter(product => product.inStock).length
+  const openProductForm = () => {
+    setTab('products')
+    setEditingProduct(null)
+    setShowProductForm(true)
+  }
 
   return (
     <div className="pb-24">
@@ -90,6 +98,25 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
       />
       <PreviewNote detail="Shop status pauses customer orders; accept new orders, pack them, and hand them off to a rider." />
       <div className="mx-auto max-w-md px-4">
+        {tab === 'orders' && (
+          <section aria-label="Shop visibility" className="mt-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]')}>
+                  {shop.open ? <Eye className="size-5" aria-hidden="true" /> : <Store className="size-5" aria-hidden="true" />}
+                </span>
+                <div>
+                  <p className="text-sm font-bold">{shop.open ? 'Your shop is visible' : 'Your shop is hidden from orders'}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-ink">{shop.open ? `${inStockCount} products are available for customers to browse.` : 'Open your shop to let nearby customers place orders.'}</p>
+                </div>
+              </div>
+              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold', shop.open ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]')}>{shop.open ? 'LIVE' : 'CLOSED'}</span>
+            </div>
+            <button type="button" onClick={openProductForm} className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand text-sm font-semibold text-white transition hover:bg-brand-deep">
+              <Plus className="size-4" aria-hidden="true" /> Add a product
+            </button>
+          </section>
+        )}
         {tab === 'orders' && (
           <>
             <dl className="mt-4 grid grid-cols-3 gap-2">
@@ -162,20 +189,48 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
 
         {tab === 'products' && (
           <section aria-labelledby="products-heading" className="mt-4">
-            <h2 id="products-heading" className="text-sm font-bold">Your products</h2>
-            <p className="text-xs leading-5 text-muted-ink">Stock switches immediately affect the demo shop&apos;s customer catalog. Changes are temporary; product edits and real listings are not connected.</p>
-            <ul className="mt-3 rounded-2xl border border-line bg-white px-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="products-heading" className="text-lg font-bold">Products & inventory</h2>
+                <p className="mt-1 text-xs leading-5 text-muted-ink">Customers can see in-stock items while your shop is open.</p>
+              </div>
+              <button type="button" onClick={() => { setEditingProduct(null); setShowProductForm(true) }} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-deep">
+                <Plus className="size-4" aria-hidden="true" /> Add product
+              </button>
+            </div>
+            <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#FFF8F1] px-3 py-2.5 text-xs text-brand-deep">
+              <Eye className="size-4 shrink-0" aria-hidden="true" />
+              <span><strong>{inStockCount} visible</strong> to customers · {myProducts.length - inStockCount} out of stock</span>
+            </div>
+            <p role="status" className="mt-2 text-[11px] text-muted-ink">Preview only: product changes update the sample catalog immediately and reset when you leave.</p>
+            {showProductForm && (
+              <ProductEditor
+                key={editingProduct?.id ?? 'new-product'}
+                initial={editingProduct ?? undefined}
+                onCancel={() => { setShowProductForm(false); setEditingProduct(null) }}
+                onSave={product => {
+                  if (editingProduct) updateProduct({ ...editingProduct, ...product })
+                  else addProduct(product)
+                  setShowProductForm(false)
+                  setEditingProduct(null)
+                }}
+              />
+            )}
+            <ul className="mt-3 flex flex-col gap-2">
               {myProducts.map(p => (
-                <li key={p.id} className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
+                <li key={p.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3">
                   <ProductTile category={p.category} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-ink">
-                      {p.unit} · {rupee(p.price)}
-                    </p>
+                    <p className="text-xs text-muted-ink">{p.unit} · {rupee(p.price)}</p>
+                    <p className={cn('mt-1 text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'Visible in catalog' : 'Out of stock'}</p>
                   </div>
-                  <span className={cn('text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'In stock' : 'Out'}</span>
-                  <Toggle checked={p.inStock} onChange={() => toggleStock(p.id)} label={`${p.name} in stock`} />
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <Toggle checked={p.inStock} onChange={() => toggleStock(p.id)} label={`${p.name} in stock`} />
+                    <button type="button" onClick={() => { setEditingProduct(p); setShowProductForm(true) }} aria-label={`Edit ${p.name}`} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-brand-deep hover:bg-[#FFF8F1]">
+                      <Pencil className="size-3.5" aria-hidden="true" /> Edit
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -194,6 +249,72 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
         onSelect={setTab}
       />
     </div>
+  )
+}
+
+type ProductDraft = {
+  name: string
+  unit: string
+  price: number
+  category: CategoryId
+  inStock: boolean
+}
+
+function ProductEditor({ initial, onSave, onCancel }: { initial?: Product; onSave: (product: ProductDraft) => void; onCancel: () => void }) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [unit, setUnit] = useState(initial?.unit ?? '')
+  const [price, setPrice] = useState(initial ? String(initial.price) : '')
+  const [category, setCategory] = useState<CategoryId>(initial?.category ?? 'staples')
+  const [inStock, setInStock] = useState(initial?.inStock ?? true)
+  const [error, setError] = useState('')
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const amount = Number(price)
+    if (!name.trim() || !unit.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setError('Enter a product name, pack size, and price greater than ₹0.')
+      return
+    }
+    onSave({ name: name.trim(), unit: unit.trim(), price: amount, category, inStock })
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-3 rounded-2xl border border-brand/30 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold">{initial ? 'Edit product details' : 'Add a product'}</h3>
+          <p className="mt-1 text-xs text-muted-ink">Add the details customers need to choose the right item.</p>
+        </div>
+        <button type="button" onClick={onCancel} aria-label="Close product form" className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-ink hover:bg-[#FFF8F1]"><X className="size-4" aria-hidden="true" /></button>
+      </div>
+      <div className="mt-4 flex flex-col gap-3">
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Product name
+          <input autoFocus required value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Fresh paneer" className="h-11 rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Category
+            <select value={category} onChange={event => setCategory(event.target.value as CategoryId)} className="h-11 min-w-0 rounded-xl border border-line bg-white px-2 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15">
+              {categories.map(item => <option key={item.id} value={item.id}>{item.short}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Pack size
+            <input required value={unit} onChange={event => setUnit(event.target.value)} placeholder="500 g / 1 pc" className="h-11 min-w-0 rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1.5 text-xs font-medium text-muted-ink">Selling price (₹)
+          <input required type="number" min="0.01" step="0.01" inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} placeholder="0.00" className="h-11 rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" />
+        </label>
+        <label className="flex min-h-11 items-center gap-3 rounded-xl bg-[#F8F6F2] px-3 text-sm">
+          <input type="checkbox" checked={inStock} onChange={event => setInStock(event.target.checked)} className="size-4 accent-[#C2410C]" />
+          <span><strong>In stock</strong><span className="block text-xs text-muted-ink">Show this product in the customer catalog</span></span>
+        </label>
+        {error && <p role="alert" className="text-xs text-[#B91C1C]">{error}</p>}
+        <div className="flex gap-2">
+          <SecondaryButton onClick={onCancel} className="h-11">Cancel</SecondaryButton>
+          <PrimaryButton type="submit" className="h-11">{initial ? 'Save changes' : 'Add to catalog'}</PrimaryButton>
+        </div>
+      </div>
+    </form>
   )
 }
 
