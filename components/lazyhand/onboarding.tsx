@@ -47,11 +47,11 @@ export function WelcomeScreen({ onStart, onLogin }: { onStart: () => void; onLog
     <main className="min-h-svh bg-gradient-to-b from-[#F76B1C] via-[#FA8A2E] to-[#FFB24A] text-white">
       <div className="mx-auto flex min-h-svh w-full max-w-md flex-col px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-[max(env(safe-area-inset-top),24px)]">
         <section className="flex flex-1 flex-col items-center justify-center text-center">
-          <div className="w-60 rounded-[28px] bg-cream px-5 py-6 shadow-[0_24px_48px_-24px_#7C2D12]">
+          <div className="w-64 rounded-[28px] border border-white/80 bg-white px-4 py-5 shadow-[0_24px_48px_-24px_#7C2D12]">
             <Logo priority className="w-full" />
           </div>
           <h1 className="mt-7 text-4xl font-bold tracking-tight text-balance">LazyHand</h1>
-          <p className="mt-2 max-w-64 text-sm leading-6 text-white/90 text-pretty">Your chowk, at your doorstep in 20 minutes.</p>
+          <p className="mt-2 max-w-64 text-sm leading-6 text-white/90 text-pretty">Your neighborhood shops, delivered to your door.</p>
         </section>
         <div className="flex flex-col gap-3">
           <button
@@ -161,7 +161,7 @@ function OrbitAnimation({ active, done }: { active: boolean; done: boolean }) {
 const roleOptions: { id: Role; title: string; description: string; Icon: typeof Store }[] = [
   { id: 'customer', title: 'Customer', description: 'Order groceries, dairy & snacks from nearby shops', Icon: UserRound },
   { id: 'shopkeeper', title: 'Shopkeeper', description: 'List your products and receive orders', Icon: Store },
-  { id: 'rider', title: 'Delivery Partner', description: 'Earn ₹20 per trip delivering in your area', Icon: Bike },
+  { id: 'rider', title: 'Delivery Partner', description: 'Pick up local shop orders and track sample trips', Icon: Bike },
 ]
 
 export function RoleScreen({ role, onSelect, onContinue, onBack }: { role: Role; onSelect: (role: Role) => void; onContinue: () => void; onBack: () => void }) {
@@ -171,7 +171,7 @@ export function RoleScreen({ role, onSelect, onContinue, onBack }: { role: Role;
         <BackButton onClick={onBack} />
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight text-balance">How will you use LazyHand?</h1>
-      <p className="mt-2 text-sm text-muted-ink">Pick one. You can add another role later.</p>
+      <p className="mt-2 text-sm leading-6 text-muted-ink">Choose what you want to do first. Customers browse and order; shopkeepers manage a shop and prepare orders; delivery partners pick up and deliver orders. You can switch roles later.</p>
       <div role="radiogroup" aria-label="Choose how you will use LazyHand" className="mt-6 flex flex-col gap-3">
         {roleOptions.map(({ id, title, description, Icon }) => {
           const selected = role === id
@@ -225,7 +225,7 @@ export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOt
         <BackButton onClick={onBack} />
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Welcome back</h1>
-      <p className="mt-2 text-sm leading-6 text-muted-ink">Log in with your mobile number. We will send a 4-digit OTP.</p>
+      <p className="mt-2 text-sm leading-6 text-muted-ink">This preview does not send SMS. Use any 4 digits to try the demo, or continue as a guest.</p>
       <form onSubmit={submit} noValidate className="mt-6 flex flex-col gap-4">
         <Field
           id="login-phone"
@@ -264,18 +264,11 @@ export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOt
 export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVerified: () => void; onBack: () => void }) {
   const [digits, setDigits] = useState(['', '', '', ''])
   const [error, setError] = useState('')
-  const [seconds, setSeconds] = useState(30)
   const refs = useRef<(HTMLInputElement | null)[]>([])
 
   useEffect(() => {
     refs.current[0]?.focus()
   }, [])
-
-  useEffect(() => {
-    if (seconds === 0) return
-    const timer = window.setTimeout(() => setSeconds(s => s - 1), 1000)
-    return () => window.clearTimeout(timer)
-  }, [seconds])
 
   const verify = (code: string[]) => {
     if (code.some(d => d === '')) {
@@ -305,8 +298,8 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
       <header>
         <BackButton onClick={onBack} />
       </header>
-      <h1 className="mt-6 text-3xl font-bold tracking-tight">Verify your number</h1>
-      <p className="mt-2 text-sm text-muted-ink">Enter the 4-digit code sent to +91 {phone.slice(0, 5)} {phone.slice(5)}</p>
+      <h1 className="mt-6 text-3xl font-bold tracking-tight">Try the sign-in demo</h1>
+      <p className="mt-2 text-sm text-muted-ink">No SMS is sent in this preview. Enter any 4 digits to continue with +91 {phone.slice(0, 5)} {phone.slice(5)}.</p>
       <form
         noValidate
         onSubmit={e => {
@@ -342,19 +335,7 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
           </div>
         </fieldset>
         {error && <p role="alert" className="text-center text-xs text-[#DC2626]">{error}</p>}
-        <p className="text-center text-xs text-muted-ink">
-          {seconds > 0 ? (
-            <>Resend code in 00:{String(seconds).padStart(2, '0')}</>
-          ) : (
-            <button type="button" onClick={() => setSeconds(30)} className="font-semibold text-brand-deep">
-              Resend code
-            </button>
-          )}
-        </p>
-        <PrimaryButton type="submit">Verify &amp; Continue</PrimaryButton>
-        <p className="rounded-lg bg-peach px-3 py-2 text-center text-[11px] leading-5 text-[#7C2D12]">
-          Preview mode: SMS isn&apos;t connected yet, so any 4 digits will verify.
-        </p>
+        <PrimaryButton type="submit">Continue to demo</PrimaryButton>
       </form>
     </Screen>
   )
@@ -386,7 +367,11 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
     setErrors(next)
     const firstInvalid = Object.keys(next)[0]
     if (firstInvalid) {
-      document.getElementById(`signup-${firstInvalid}`)?.focus()
+      const field = document.getElementById(`signup-${firstInvalid}`)
+      const target = field?.getAttribute('role') === 'radiogroup'
+        ? field.querySelector<HTMLElement>('[role="radio"]')
+        : field
+      target?.focus()
       return
     }
     onCreate({ ...form, name: form.name.trim(), village: form.village.trim(), landmark: form.landmark.trim(), shopName: form.shopName.trim() })
@@ -435,7 +420,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
             <ChipGroup
               id="signup-shopType"
               label="Shop sells"
-              options={['Kirana', 'Dairy', 'Vegetables', 'Medical', 'Sweets'].map(v => ({ value: v, label: v }))}
+              options={['Kirana', 'Dairy', 'Vegetables', 'Sweets'].map(v => ({ value: v, label: v }))}
               value={form.shopType}
               onChange={v => update('shopType', v)}
               error={errors.shopType}
@@ -454,7 +439,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
         )}
 
         <PrimaryButton type="submit" className="mt-2">Create account</PrimaryButton>
-        <p className="text-center text-[11px] text-muted-ink">By continuing you agree to our Terms &amp; Privacy Policy</p>
+        <p className="text-center text-[11px] leading-5 text-muted-ink">Fields marked Required are needed to set up your demo profile. Your delivery area helps show nearby shops. This preview does not save your details to an account.</p>
       </form>
       <p className="mt-6 text-center text-sm text-muted-ink">
         Already registered?{' '}
@@ -471,18 +456,32 @@ function ChipGroup({ id, label, options, value, onChange, error }: { id: string;
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-2 text-xs font-medium text-muted-ink">
         {label}
-        <span className="text-brand-deep" aria-hidden="true"> *</span>
+        <span className="ml-1 font-semibold text-brand-deep">· Required</span>
       </legend>
-      <div role="radiogroup" aria-label={label} aria-invalid={Boolean(error)} className="flex flex-wrap gap-2">
-        {options.map((option, index) => {
+      <div id={id} role="radiogroup" aria-label={label} aria-required="true" aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} className="flex flex-wrap gap-2">
+        {options.map(option => {
           const selected = option.value === value
           return (
             <button
               key={option.value}
-              id={index === 0 ? id : undefined}
+              id={`${id}-${option.value}`}
               type="button"
               role="radio"
               aria-checked={selected}
+              tabIndex={selected ? 0 : -1}
+              onKeyDown={event => {
+                const currentIndex = options.findIndex(item => item.value === value)
+                const nextIndex = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                  ? (currentIndex + 1) % options.length
+                  : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                    ? (currentIndex - 1 + options.length) % options.length
+                    : -1
+                if (nextIndex >= 0) {
+                  event.preventDefault()
+                  onChange(options[nextIndex].value)
+                  document.getElementById(`${id}-${options[nextIndex].value}`)?.focus()
+                }
+              }}
               onClick={() => onChange(option.value)}
               className={cn(
                 'h-9 rounded-full border px-4 text-xs font-semibold transition active:scale-95',
@@ -494,7 +493,7 @@ function ChipGroup({ id, label, options, value, onChange, error }: { id: string;
           )
         })}
       </div>
-      {error && <p className="text-xs text-[#DC2626]">{error}</p>}
+      {error && <p id={`${id}-error`} className="text-xs text-[#DC2626]">{error}</p>}
     </fieldset>
   )
 }

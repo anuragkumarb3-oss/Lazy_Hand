@@ -1,19 +1,30 @@
 'use client'
 
 import Image from 'next/image'
-import type { ComponentProps, ReactNode } from 'react'
+import { useState, type ComponentProps, type ReactNode } from 'react'
 import { ChevronLeft, Minus, Plus, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { categoryById, type CategoryId } from './data'
 
 export function Logo({ className, priority }: { className?: string; priority?: boolean }) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return (
+      <span role="img" aria-label="LazyHand" className={cn('flex aspect-[924/410] items-center justify-center bg-white text-3xl font-black tracking-tight text-brand-deep', className)}>
+        LazyHand
+      </span>
+    )
+  }
+
   return (
     <Image
       src="/lazyhand-logo.png"
-      alt="LazyHand"
+      alt="LazyHand logo"
       width={924}
       height={410}
       priority={priority}
+      onError={() => setFailed(true)}
       className={cn('h-auto object-contain', className)}
     />
   )
@@ -81,7 +92,7 @@ export function Field({ label, Icon, error, optional, prefix, id, className, ...
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-xs font-medium text-muted-ink">
         {label}
-        {optional ? <span className="font-normal"> (optional)</span> : <span className="text-brand-deep" aria-hidden="true"> *</span>}
+        {optional ? <span className="font-normal"> · Optional</span> : <span className="ml-1 font-semibold text-brand-deep">· Required</span>}
       </label>
       <div
         className={cn(

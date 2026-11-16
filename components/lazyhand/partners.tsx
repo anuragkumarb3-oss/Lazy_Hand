@@ -47,6 +47,14 @@ function OrderLines({ order }: { order: Order }) {
   )
 }
 
+function PreviewNote({ detail }: { detail: string }) {
+  return (
+    <p role="status" className="mx-auto mt-3 max-w-md px-4 text-xs leading-5 text-muted-ink">
+      {detail} Demo only: changes appear immediately but are temporary. No real orders, customers, riders, or payouts are connected.
+    </p>
+  )
+}
+
 function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; detail: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-line bg-white p-6 text-center">
@@ -80,6 +88,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
           </div>
         }
       />
+      <PreviewNote detail="Shop status pauses customer orders; accept new orders, pack them, and hand them off to a rider." />
       <div className="mx-auto max-w-md px-4">
         {tab === 'orders' && (
           <>
@@ -94,7 +103,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
             <section aria-labelledby="new-orders" className="mt-5">
               <h2 id="new-orders" className="text-sm font-bold">New orders</h2>
               <div className="mt-2 flex flex-col gap-2.5">
-                {incoming.length === 0 && <Empty Icon={ClipboardList} title="No new orders" detail="Orders customers place at your shop appear here instantly." />}
+                {incoming.length === 0 && <Empty Icon={ClipboardList} title="No new orders" detail="Accept or decline a demo order. Accepted orders move to Packing; no customer is notified." />}
                 {incoming.map(order => (
                   <article key={order.id} className="rounded-2xl border-2 border-brand bg-white p-4">
                     <div className="flex items-center justify-between">
@@ -102,7 +111,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
                       <p className="text-sm font-bold">{rupee(order.itemTotal)}</p>
                     </div>
                     <p className="text-xs text-muted-ink">
-                      {order.customerName} · {order.payment === 'cod' ? 'Cash on delivery' : 'UPI'}
+                      {order.customerName} · Cash on delivery
                     </p>
                     <OrderLines order={order} />
                     <div className="mt-3 flex gap-2">
@@ -154,7 +163,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
         {tab === 'products' && (
           <section aria-labelledby="products-heading" className="mt-4">
             <h2 id="products-heading" className="text-sm font-bold">Your products</h2>
-            <p className="text-xs text-muted-ink">Switch off anything that runs out so customers can&apos;t order it.</p>
+            <p className="text-xs leading-5 text-muted-ink">Stock switches immediately affect the demo shop&apos;s customer catalog. Changes are temporary; product edits and real listings are not connected.</p>
             <ul className="mt-3 rounded-2xl border border-line bg-white px-3">
               {myProducts.map(p => (
                 <li key={p.id} className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
@@ -209,6 +218,7 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
           </div>
         }
       />
+      <PreviewNote detail="Go online to see demo pickups, accept one trip, then mark it picked up and delivered." />
       <div className="mx-auto max-w-md px-4">
         {tab === 'trips' && (
           <>
@@ -259,7 +269,7 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                 {!online ? (
                   <Empty Icon={Power} title="You are offline" detail="Go online to see orders that are packed and ready near you." />
                 ) : available.length === 0 ? (
-                  <Empty Icon={Bike} title="No pickups right now" detail="When a shop marks an order packed, it shows up here." />
+                  <Empty Icon={Bike} title="No pickups right now" detail="Demo pickups appear when the sample shop marks an order packed. Accepting one changes only this preview." />
                 ) : (
                   available.map(order => (
                     <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
@@ -325,7 +335,7 @@ function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) 
   return (
     <section className="mt-4 flex flex-col gap-3">
       <div className="rounded-2xl border border-line bg-white p-4">
-        <p className="text-xs text-muted-ink">Signed in as</p>
+        <p className="text-xs text-muted-ink">Demo profile · not signed in</p>
         <p className="text-sm font-semibold">{profile.name || 'Preview user'}</p>
         <p className="text-xs text-muted-ink">
           {role}

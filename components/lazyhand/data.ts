@@ -80,7 +80,7 @@ export const seedProducts: Product[] = [
 ]
 
 export type OrderStatus = 'placed' | 'accepted' | 'ready' | 'picked' | 'delivered' | 'rejected'
-export type Payment = 'cod' | 'upi'
+export type Payment = 'cod'
 export type OrderLine = { productId: string; name: string; price: number; qty: number }
 
 export type Order = {
@@ -121,7 +121,7 @@ export const seedHistory: Order[] = [
     ...billFor(101),
   },
   {
-    id: 'LH2377', shopId: 'raj', payment: 'upi', status: 'delivered', placedAt: '8 Nov', customerName: 'You', address: '',
+    id: 'LH2377', shopId: 'raj', payment: 'cod', status: 'delivered', placedAt: '8 Nov', customerName: 'You', address: '',
     lines: [
       { productId: 'p9', name: 'Toor Dal', price: 165, qty: 1 },
       { productId: 'p10', name: 'Sugar', price: 48, qty: 2 },

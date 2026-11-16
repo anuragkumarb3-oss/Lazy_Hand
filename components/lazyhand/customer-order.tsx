@@ -15,12 +15,11 @@ import {
   Receipt,
   RefreshCw,
   ShoppingBag,
-  Smartphone,
   Store,
   Truck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { billFor, FREE_DELIVERY_AT, rupee, type Order, type OrderStatus, type Payment, type Role } from './data'
+import { billFor, FREE_DELIVERY_AT, rupee, type Order, type OrderStatus, type Role } from './data'
 import { useLazyHand } from './store'
 import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
@@ -130,13 +129,13 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
 
 export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
   const { cartTotal, cartCount, cart, shopById, profile, placeOrder } = useLazyHand()
-  const [method, setMethod] = useState<Payment>('cod')
   const [error, setError] = useState('')
   const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
+  const addressMissing = !address || address === 'Set your location'
   const shop = cart.shopId ? shopById[cart.shopId] : null
 
   const place = () => {
-    if (!address || address === 'Set your location') {
+    if (addressMissing) {
       setError('Add a delivery address before placing the order')
       return
     }
@@ -144,14 +143,9 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       setError(`${shop.name} just closed. Try another shop.`)
       return
     }
-    const order = placeOrder(method, address)
+    const order = placeOrder('cod', address)
     if (order) onPlaced(order)
   }
-
-  const methods: { id: Payment; title: string; detail: string; Icon: typeof Banknote }[] = [
-    { id: 'cod', title: 'Cash on Delivery', detail: 'Pay cash or UPI to the rider at your door', Icon: Banknote },
-    { id: 'upi', title: 'UPI', detail: 'GPay, PhonePe, Paytm — pay when the rider arrives', Icon: Smartphone },
-  ]
 
   return (
     <div className="flex min-h-svh flex-col pb-28">
@@ -164,11 +158,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
             </span>
             <div className="min-w-0 flex-1">
               <h2 id="deliver-heading" className="text-xs text-muted-ink">Deliver to {profile.name || 'you'}</h2>
-              <p className="text-sm font-semibold">{address || 'No address yet'}</p>
+              {addressMissing ? (
+                <p className="mt-1 text-sm font-semibold text-brand-deep">Delivery address · Required</p>
+              ) : (
+                <p className="text-sm font-semibold">{address}</p>
+              )}
               {profile.phone && <p className="text-xs text-muted-ink">+91 {profile.phone}</p>}
             </div>
             <button type="button" onClick={onEditAddress} className="text-xs font-semibold text-brand-deep">
-              Change
+              {addressMissing ? 'Add address' : 'Change'}
             </button>
           </div>
           {shop && (
@@ -178,31 +176,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           )}
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold" id="pay-heading">Pay with</h2>
-          <div role="radiogroup" aria-labelledby="pay-heading" className="flex flex-col gap-2">
-            {methods.map(({ id, title, detail, Icon }) => {
-              const selected = method === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setMethod(id)}
-                  className={cn('flex items-center gap-3 rounded-xl border p-3 text-left transition', selected ? 'border-brand bg-[#FFF5EC]' : 'border-line')}
-                >
-                  <Icon className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">{title}</span>
-                    <span className="block text-xs text-muted-ink">{detail}</span>
-                  </span>
-                  <span className={cn('grid size-5 place-items-center rounded-full border', selected ? 'border-brand bg-brand text-white' : 'border-[#CFCAC3] text-transparent')}>
-                    <Check className="size-3" aria-hidden="true" />
-                  </span>
-                </button>
-              )
-            })}
+        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="pay-heading">
+          <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
+          <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
+            <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold">Cash on delivery</p>
+              <p className="text-xs text-muted-ink">Pay the rider in cash. Digital payments are not connected in this preview.</p>
+            </div>
+            <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" />
           </div>
         </section>
 
@@ -340,7 +322,7 @@ export function TrackingScreen({ orderId, onBack, onViewAs }: { orderId: string;
             ))}
           </ul>
           <p className="mt-3 flex justify-between border-t border-dashed border-line pt-3 text-sm font-bold">
-            <span>Total · {order.payment === 'cod' ? 'Cash on delivery' : 'UPI'}</span>
+            <span>Total · Cash on delivery</span>
             <span>{rupee(order.total)}</span>
           </p>
         </section>
@@ -418,7 +400,7 @@ export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAd
     { label: 'Saved address', detail: [profile.village || area, profile.landmark].filter(Boolean).join(', '), Icon: MapPin, onClick: onEditAddress },
     { label: 'Your orders', detail: `${orders.length} orders`, Icon: Package, onClick: onOrders },
     { label: 'Become a shopkeeper', detail: 'Manage a shop and accept orders', Icon: Store, onClick: () => onSwitchRole('shopkeeper') },
-    { label: 'Become a delivery partner', detail: 'Earn ₹20 per delivery trip', Icon: Bike, onClick: () => onSwitchRole('rider') },
+    { label: 'Become a delivery partner', detail: 'Apply to deliver local shop orders', Icon: Bike, onClick: () => onSwitchRole('rider') },
   ]
   return (
     <div className="pb-28">

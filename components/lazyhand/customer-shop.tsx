@@ -144,6 +144,10 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore, onOpenCatego
         </div>
       </header>
 
+      <p role="status" className="mx-auto max-w-md px-4 pt-3 text-xs leading-5 text-muted-ink">
+        Demo catalog: shops and products are examples. Cart and order updates run in this preview only and reset when you leave.
+      </p>
+
       <div className="mx-auto max-w-md px-4">
         {results ? (
           <section aria-labelledby="results-heading" className="mt-5">

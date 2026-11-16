@@ -111,9 +111,9 @@ function Field({ label, value, onChangeText, placeholder, keyboardType }: {
 }) {
   return (
     <View style={styles.fieldWrap}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={styles.fieldLabel}>{label} · Required</Text>
       <TextInput
-        accessibilityLabel={label}
+        accessibilityLabel={`${label}, required`}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -168,6 +168,7 @@ export default function LazyHandApp() {
   const [vehicle, setVehicle] = useState('')
   const [riderArea, setRiderArea] = useState('')
   const [notice, setNotice] = useState('')
+  const [logoFailed, setLogoFailed] = useState(false)
   const entrance = useRef(new Animated.Value(0)).current
   const locationOrbit = useRef(new Animated.Value(0)).current
   const locationOrbitReverse = useRef(new Animated.Value(0)).current
@@ -248,19 +249,19 @@ export default function LazyHandApp() {
       <Animated.View style={[styles.welcome, styles.welcomeOrange, contentStyle]}>
         <View style={styles.welcomeTop}>
           <View style={styles.welcomeLogoCard}>
-            <Image source={require('../public/lazyhand-logo.png')} resizeMode="contain" style={styles.welcomeLogo} accessibilityLabel="LazyHand hand-drawn logo" />
+            {logoFailed ? (
+              <Text accessibilityRole="image" accessibilityLabel="LazyHand logo" style={styles.welcomeLogoFallback}>LazyHand</Text>
+            ) : (
+              <Image source={require('../public/lazyhand-logo.png')} resizeMode="contain" style={styles.welcomeLogo} accessibilityLabel="LazyHand logo" onError={() => setLogoFailed(true)} />
+            )}
           </View>
           <Text style={styles.welcomeBrandTitle}>LazyHand</Text>
-          <Text style={styles.welcomeTagline}>Your neighborhood, at your doorstep in 20 minutes.</Text>
+          <Text style={styles.welcomeTagline}>Your neighborhood shops, delivered to your door.</Text>
         </View>
         <View style={styles.welcomeActions}>
           <Pressable accessibilityRole="button" onPress={() => enter('location')} style={({ pressed }) => [styles.welcomeButton, pressed && styles.buttonDimmed]}>
             <Text style={styles.welcomeButtonText}>Get started</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => setNotice('Sign-in is not available in this preview yet.')} style={styles.welcomeLogin}>
-            <Text style={styles.welcomeLoginText}>Already have an account? <Text style={styles.welcomeLoginStrong}>Log in</Text></Text>
-          </Pressable>
-          {notice ? <Text accessibilityRole="alert" style={styles.welcomeNotice}>{notice}</Text> : null}
           <Text style={styles.privacyNote}>Location access is requested after you continue.</Text>
         </View>
       </Animated.View>
@@ -307,7 +308,7 @@ export default function LazyHandApp() {
         {([
           { name: 'Customer' as const, icon: 'bag-handle-outline' as const, desc: 'Explore nearby shops and place local orders.' },
           { name: 'Shopkeeper' as const, icon: 'storefront-outline' as const, desc: 'Register your shop and prepare to receive orders.' },
-          { name: 'Delivery partner' as const, icon: 'bicycle-outline' as const, desc: 'Apply to deliver neighborhood orders.' },
+          { name: 'Delivery partner' as const, icon: 'bicycle-outline' as const, desc: 'Apply to pick up and deliver neighborhood orders.' },
         ]).map(item => {
           const selected = role === item.name
           return (
@@ -340,6 +341,7 @@ export default function LazyHandApp() {
           <Text style={styles.eyebrow}>{isShop ? 'LOCAL BUSINESS PARTNER' : 'DELIVERY PARTNER'}</Text>
           <Text style={styles.pageTitle}>{isShop ? 'Bring your shop online.' : 'Deliver good things nearby.'}</Text>
           <Text style={styles.bodyText}>{isShop ? 'Share the basics so your shop can be reviewed for the 845420 pilot.' : 'Tell us about yourself and your ride. Rider applications are reviewed before activation.'}</Text>
+          <Text style={styles.fieldHint}>All fields marked Required must be completed. Your application is not sent in this preview.</Text>
           {isShop ? <Field label="Shop name" value={shopName} onChangeText={setShopName} placeholder="Your store name" /> : null}
           <Field label="Your full name" value={ownerName} onChangeText={setOwnerName} placeholder="Name as on your ID" />
           <Field label="Phone number" value={phone} onChangeText={setPhone} placeholder="10-digit mobile number" keyboardType="phone-pad" />
@@ -473,17 +475,14 @@ const styles = StyleSheet.create({
   seeAllText: { color: palette.forest, fontSize: 10, fontWeight: '900' },
   welcome: { flex: 1, paddingHorizontal: 25, paddingTop: 14, paddingBottom: 14, justifyContent: 'space-between' },
   welcomeOrange: { backgroundColor: palette.lime },
-  welcomeLogoCard: { width: 216, height: 110, alignItems: 'center', justifyContent: 'center', padding: 10, borderRadius: 28, backgroundColor: '#FFF9F2', elevation: 5, shadowColor: palette.leaf, shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
-  welcomeLogo: { width: 190, height: 88 },
+  welcomeLogoCard: { width: 244, height: 122, alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 28, borderWidth: 1, borderColor: '#FFFFFF', backgroundColor: '#FFFFFF', elevation: 5, shadowColor: palette.leaf, shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
+  welcomeLogo: { width: 224, height: 102 },
+  welcomeLogoFallback: { color: palette.leaf, fontSize: 26, fontWeight: '900', letterSpacing: -0.6 },
   welcomeBrandTitle: { color: '#FFFFFF', fontSize: 31, fontWeight: '900', letterSpacing: -0.8, marginTop: 18 },
   welcomeTagline: { maxWidth: 250, color: 'rgba(255,255,255,0.9)', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
   welcomeTop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   welcomeButton: { minHeight: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 17, backgroundColor: '#FFFFFF' },
   welcomeButtonText: { color: palette.forest, fontSize: 14, fontWeight: '900' },
-  welcomeLogin: { minHeight: 38, alignItems: 'center', justifyContent: 'center' },
-  welcomeLoginText: { color: 'rgba(255,255,255,0.9)', fontSize: 11 },
-  welcomeLoginStrong: { color: '#FFFFFF', fontWeight: '900' },
-  welcomeNotice: { color: '#FFFFFF', fontSize: 11, lineHeight: 16, textAlign: 'center' },
   welcomeBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandMark: { backgroundColor: palette.forest, alignItems: 'center', justifyContent: 'center' },
   wordmark: { color: palette.ink, fontSize: 21, fontWeight: '900', letterSpacing: -0.7 },
@@ -527,6 +526,7 @@ const styles = StyleSheet.create({
   permissionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, marginBottom: 8 },
   permissionText: { flex: 1, color: palette.muted, fontSize: 11, lineHeight: 16 },
   fieldWrap: { marginTop: 11 },
+  fieldHint: { color: palette.muted, fontSize: 11, lineHeight: 16, marginBottom: 3 },
   fieldLabel: { color: palette.ink, fontSize: 11, fontWeight: '800', marginBottom: 6 },
   field: { minHeight: 48, borderRadius: 14, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 13, fontSize: 13, color: palette.ink },
   noticeCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 11, borderRadius: 13, backgroundColor: palette.softGreen, marginTop: 12 },
