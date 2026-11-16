@@ -7,7 +7,6 @@ import {
   LocationScreen,
   LoginScreen,
   OtpScreen,
-  RoleScreen,
   SignupScreen,
   WelcomeScreen,
   type LocationState,
@@ -16,9 +15,9 @@ import { CartBar, CategoriesScreen, ConflictSheet, CustomerHome, StoreScreen } f
 import { CartScreen, OrderAgainScreen, PaymentScreen, ProfileScreen, TrackingScreen } from './lazyhand/customer-order'
 import { RiderDashboard, ShopkeeperDashboard } from './lazyhand/partners'
 import { emptyProfile, LazyHandProvider, useLazyHand } from './lazyhand/store'
-import { BottomNav } from './lazyhand/ui'
+import { BottomNav, LoadingScreen } from './lazyhand/ui'
 
-type Stage = 'welcome' | 'location' | 'role' | 'login' | 'otp' | 'signup' | 'app'
+type Stage = 'welcome' | 'location' | 'login' | 'otp' | 'signup' | 'loading' | 'app'
 type Tab = 'home' | 'categories' | 'orders' | 'profile'
 type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'payment' } | { kind: 'track'; orderId: string } | null
 
@@ -93,7 +92,8 @@ function LazyHandShell() {
     setActiveRole(role)
     setTab('home')
     setOverlay(null)
-    setStage('app')
+    setStage('loading')
+    window.setTimeout(() => setStage('app'), 850)
     window.scrollTo({ top: 0 })
   }
 
@@ -101,6 +101,8 @@ function LazyHandShell() {
     setOverlay(next)
     window.scrollTo({ top: 0 })
   }
+
+  if (stage === 'loading') return <LoadingScreen />
 
   if (stage === 'welcome')
     return (
@@ -110,10 +112,10 @@ function LazyHandShell() {
           if (location.status === 'idle') request()
         }}
         onLogin={() => setStage('login')}
+        onShopkeeperUnlock={() => setPendingRole('shopkeeper')}
       />
     )
-  if (stage === 'location') return <LocationScreen location={location} onRetry={request} onContinue={() => setStage('role')} onBack={() => setStage('welcome')} />
-  if (stage === 'role') return <RoleScreen role={pendingRole} onSelect={setPendingRole} onContinue={() => setStage('signup')} onBack={() => setStage('location')} />
+  if (stage === 'location') return <LocationScreen location={location} onRetry={request} onContinue={() => setStage('signup')} onBack={() => setStage('welcome')} />
   if (stage === 'login')
     return (
       <LoginScreen
@@ -126,7 +128,10 @@ function LazyHandShell() {
           setProfile({ ...emptyProfile })
           enterApp('customer')
         }}
-        onSignup={() => setStage('role')}
+        onSignup={() => {
+          setPendingRole('customer')
+          setStage('signup')
+        }}
         onBack={() => setStage('welcome')}
       />
     )
@@ -147,12 +152,10 @@ function LazyHandShell() {
         initial={{ ...profile, role: pendingRole, village: profile.village || (location.status === 'granted' ? location.area : '') }}
         onCreate={created => {
           setProfile(created)
-          setLoginPhone(created.phone)
-          setAfterOtp(created.role)
-          setStage('otp')
+          enterApp(created.role)
         }}
         onLogin={() => setStage('login')}
-        onBack={() => setStage('role')}
+        onBack={() => setStage('location')}
       />
     )
 
@@ -181,7 +184,7 @@ function LazyHandShell() {
     body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} />
   } else if (overlay?.kind === 'track') {
     showNav = false
-    body = <TrackingScreen orderId={overlay.orderId} onBack={() => { setTab('orders'); go(null) }} onViewAs={role => setActiveRole(role)} />
+    body = <TrackingScreen orderId={overlay.orderId} onBack={() => { setTab('orders'); go(null) }} onViewAs={role => enterApp(role)} />
   } else if (tab === 'home')
     body = (
       <CustomerHome
@@ -201,7 +204,7 @@ function LazyHandShell() {
     body = (
       <ProfileScreen
         area={area}
-        onSwitchRole={setActiveRole}
+        onSwitchRole={role => enterApp(role)}
         onLogout={logout}
         onOrders={() => setTab('orders')}
         onEditAddress={editAddress}

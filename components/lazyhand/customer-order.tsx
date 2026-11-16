@@ -15,14 +15,13 @@ import {
   Receipt,
   RefreshCw,
   ShoppingBag,
-  Smartphone,
   Store,
   Truck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { billFor, FREE_DELIVERY_AT, rupee, type Order, type OrderStatus, type Payment, type Role } from './data'
+import { billFor, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, deliverySlabFor, rupee, type Order, type OrderStatus, type Role } from './data'
 import { useLazyHand } from './store'
-import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
+import { BackButton, LoadingScreen, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
 function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
@@ -33,8 +32,8 @@ function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   )
 }
 
-function BillRows({ itemTotal }: { itemTotal: number }) {
-  const bill = billFor(itemTotal)
+function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { itemTotal: number; distanceKm?: number }) {
+  const bill = billFor(itemTotal, distanceKm)
   return (
     <dl className="flex flex-col gap-2 text-sm">
       <div className="flex justify-between">
@@ -42,12 +41,12 @@ function BillRows({ itemTotal }: { itemTotal: number }) {
         <dd>{rupee(bill.itemTotal)}</dd>
       </div>
       <div className="flex justify-between">
-        <dt className="text-muted-ink">Delivery fee</dt>
-        <dd className={bill.deliveryFee === 0 ? 'font-semibold text-[#15803D]' : ''}>{bill.deliveryFee === 0 ? 'FREE' : rupee(bill.deliveryFee)}</dd>
+        <dt className="text-muted-ink">Delivery · {deliverySlabFor(bill.deliveryDistanceKm).label}</dt>
+        <dd>{rupee(bill.deliveryFee)}</dd>
       </div>
       <div className="flex justify-between">
         <dt className="text-muted-ink">Platform fee</dt>
-        <dd>{rupee(bill.platformFee)}</dd>
+        <dd className="font-semibold">{rupee(bill.platformFee)}</dd>
       </div>
       <div className="mt-1 flex justify-between border-t border-dashed border-line pt-3 text-base font-bold">
         <dt>To pay</dt>
@@ -58,9 +57,7 @@ function BillRows({ itemTotal }: { itemTotal: number }) {
 }
 
 export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => void; onCheckout: () => void; onBrowse: () => void }) {
-  const { cartLines, cartTotal, cart, shopById, addItem, removeItem } = useLazyHand()
-  const remaining = Math.max(FREE_DELIVERY_AT - cartTotal, 0)
-
+  const { cartLines, cartTotal, cart, shopById, addItem, removeItem, setDeliveryDistance } = useLazyHand()
   if (!cartLines.length || !cart.shopId) {
     return (
       <div className="flex min-h-svh flex-col">
@@ -81,14 +78,9 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
     <div className="flex min-h-svh flex-col pb-28">
       <TopBar title="Your cart" onBack={onBack} />
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pt-4">
-        <div className="rounded-2xl border border-line bg-white p-3.5">
-          <p className="flex items-center gap-2 text-sm font-semibold">
-            <Truck className="size-4 text-brand-deep" aria-hidden="true" />
-            {remaining > 0 ? <>Add {rupee(remaining)} more for FREE delivery</> : 'Yay! You get FREE delivery'}
-          </p>
-          <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-[#F1ECE5]" role="progressbar" aria-valuemin={0} aria-valuemax={FREE_DELIVERY_AT} aria-valuenow={Math.min(cartTotal, FREE_DELIVERY_AT)} aria-label="Progress to free delivery">
-            <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.min((cartTotal / FREE_DELIVERY_AT) * 100, 100)}%` }} />
-          </div>
+        <div className="flex items-center gap-2 rounded-2xl border border-line bg-white p-3.5 text-sm">
+          <Truck className="size-4 shrink-0 text-brand-deep" aria-hidden="true" />
+          <p>Fair delivery pricing · <strong className="text-brand-deep">distance-based fees, no seller commission</strong></p>
         </div>
 
         <section className="rounded-2xl border border-line bg-white px-3.5" aria-label="Cart items">
@@ -112,15 +104,23 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
           </ul>
         </section>
 
+        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="distance-heading">
+          <label htmlFor="delivery-distance" className="text-xs font-semibold">Estimated shop-to-door distance</label>
+          <select id="delivery-distance" value={cart.deliveryDistanceKm} onChange={event => setDeliveryDistance(Number(event.target.value))} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15">
+            {DELIVERY_SLABS.map(option => <option key={option.label} value={option.maxDistanceKm}>{option.label} · delivery {rupee(option.customerFee)}</option>)}
+          </select>
+          <p id="distance-heading" className="mt-2 text-[10px] leading-4 text-muted-ink">Distance is an estimate in this preview; live route measurement is not connected.</p>
+        </section>
+
         <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="bill-heading">
           <h2 id="bill-heading" className="mb-3 text-sm font-bold">Bill details</h2>
-          <BillRows itemTotal={cartTotal} />
+          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} />
         </section>
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
           <PrimaryButton onClick={onCheckout}>
-            Proceed to checkout · {rupee(billFor(cartTotal).total)}
+            Proceed to checkout · {rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}
           </PrimaryButton>
         </div>
       </div>
@@ -130,13 +130,14 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
 
 export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
   const { cartTotal, cartCount, cart, shopById, profile, placeOrder } = useLazyHand()
-  const [method, setMethod] = useState<Payment>('cod')
   const [error, setError] = useState('')
+  const [isPlacing, setIsPlacing] = useState(false)
   const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
+  const addressMissing = !address || address === 'Set your location'
   const shop = cart.shopId ? shopById[cart.shopId] : null
 
   const place = () => {
-    if (!address || address === 'Set your location') {
+    if (addressMissing) {
       setError('Add a delivery address before placing the order')
       return
     }
@@ -144,14 +145,14 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       setError(`${shop.name} just closed. Try another shop.`)
       return
     }
-    const order = placeOrder(method, address)
-    if (order) onPlaced(order)
+    const order = placeOrder('cod', address)
+    if (order) {
+      setIsPlacing(true)
+      window.setTimeout(() => onPlaced(order), 950)
+    }
   }
 
-  const methods: { id: Payment; title: string; detail: string; Icon: typeof Banknote }[] = [
-    { id: 'cod', title: 'Cash on Delivery', detail: 'Pay cash or UPI to the rider at your door', Icon: Banknote },
-    { id: 'upi', title: 'UPI', detail: 'GPay, PhonePe, Paytm — pay when the rider arrives', Icon: Smartphone },
-  ]
+  if (isPlacing) return <LoadingScreen title="Order placed" detail="Confirming the shop and finding a nearby rider…" />
 
   return (
     <div className="flex min-h-svh flex-col pb-28">
@@ -164,11 +165,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
             </span>
             <div className="min-w-0 flex-1">
               <h2 id="deliver-heading" className="text-xs text-muted-ink">Deliver to {profile.name || 'you'}</h2>
-              <p className="text-sm font-semibold">{address || 'No address yet'}</p>
+              {addressMissing ? (
+                <p className="mt-1 text-sm font-semibold text-brand-deep">Delivery address · Required</p>
+              ) : (
+                <p className="text-sm font-semibold">{address}</p>
+              )}
               {profile.phone && <p className="text-xs text-muted-ink">+91 {profile.phone}</p>}
             </div>
             <button type="button" onClick={onEditAddress} className="text-xs font-semibold text-brand-deep">
-              Change
+              {addressMissing ? 'Add address' : 'Change'}
             </button>
           </div>
           {shop && (
@@ -178,31 +183,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           )}
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4">
-          <h2 className="mb-3 text-sm font-bold" id="pay-heading">Pay with</h2>
-          <div role="radiogroup" aria-labelledby="pay-heading" className="flex flex-col gap-2">
-            {methods.map(({ id, title, detail, Icon }) => {
-              const selected = method === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setMethod(id)}
-                  className={cn('flex items-center gap-3 rounded-xl border p-3 text-left transition', selected ? 'border-brand bg-[#FFF5EC]' : 'border-line')}
-                >
-                  <Icon className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">{title}</span>
-                    <span className="block text-xs text-muted-ink">{detail}</span>
-                  </span>
-                  <span className={cn('grid size-5 place-items-center rounded-full border', selected ? 'border-brand bg-brand text-white' : 'border-[#CFCAC3] text-transparent')}>
-                    <Check className="size-3" aria-hidden="true" />
-                  </span>
-                </button>
-              )
-            })}
+        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="pay-heading">
+          <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
+          <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
+            <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold">Cash on delivery</p>
+              <p className="text-xs text-muted-ink">Pay the rider in cash. Digital payments are not connected in this preview.</p>
+            </div>
+            <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" />
           </div>
         </section>
 
@@ -210,7 +199,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           <h2 className="mb-3 text-sm font-bold">
             Order summary <span className="font-normal text-muted-ink">({cartCount} items)</span>
           </h2>
-          <BillRows itemTotal={cartTotal} />
+          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} />
         </section>
         {error && (
           <p role="alert" className="rounded-xl bg-[#FEF2F2] p-3 text-sm text-[#991B1B]">
@@ -220,7 +209,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
-          <PrimaryButton onClick={place}>Place order · {rupee(billFor(cartTotal).total)}</PrimaryButton>
+          <PrimaryButton onClick={place}>Place order · {rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}</PrimaryButton>
         </div>
       </div>
     </div>
@@ -339,10 +328,10 @@ export function TrackingScreen({ orderId, onBack, onViewAs }: { orderId: string;
               </li>
             ))}
           </ul>
-          <p className="mt-3 flex justify-between border-t border-dashed border-line pt-3 text-sm font-bold">
-            <span>Total · {order.payment === 'cod' ? 'Cash on delivery' : 'UPI'}</span>
-            <span>{rupee(order.total)}</span>
-          </p>
+          <div className="mt-3 border-t border-dashed border-line pt-3">
+            <BillRows itemTotal={order.itemTotal} distanceKm={order.deliveryDistanceKm} />
+            <p className="mt-2 text-[11px] text-muted-ink">Cash on delivery · pay the rider</p>
+          </div>
         </section>
       </div>
     </div>
@@ -379,7 +368,7 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
               <p className="mt-2 line-clamp-1 text-xs text-muted-ink">{order.lines.map(l => `${l.name} ×${l.qty}`).join(', ')}</p>
               {openBill === order.id && (
                 <div className="mt-3 rounded-xl bg-cream p-3">
-                  <BillRows itemTotal={order.itemTotal} />
+                  <BillRows itemTotal={order.itemTotal} distanceKm={order.deliveryDistanceKm} />
                 </div>
               )}
               <div className="mt-3 flex gap-2">
@@ -418,7 +407,7 @@ export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAd
     { label: 'Saved address', detail: [profile.village || area, profile.landmark].filter(Boolean).join(', '), Icon: MapPin, onClick: onEditAddress },
     { label: 'Your orders', detail: `${orders.length} orders`, Icon: Package, onClick: onOrders },
     { label: 'Become a shopkeeper', detail: 'Manage a shop and accept orders', Icon: Store, onClick: () => onSwitchRole('shopkeeper') },
-    { label: 'Become a delivery partner', detail: 'Earn ₹20 per delivery trip', Icon: Bike, onClick: () => onSwitchRole('rider') },
+    { label: 'Become a delivery partner', detail: 'Apply to deliver local shop orders', Icon: Bike, onClick: () => onSwitchRole('rider') },
   ]
   return (
     <div className="pb-28">

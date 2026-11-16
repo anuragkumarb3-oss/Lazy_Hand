@@ -6,8 +6,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'LazyHand | Your neighborhood, on your terms',
-  description: 'Discover independent neighborhood shops and local delivery with LazyHand.',
+  title: 'LazyHand | Local shops, local delivery',
+  description: 'Browse neighborhood shops, place a demo order, and explore the shopkeeper and delivery partner workflows in LazyHand.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -39,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} light`}>
       <body className="bg-cream font-sans antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

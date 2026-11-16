@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import {
   billFor,
+  DEFAULT_DELIVERY_DISTANCE_KM,
   seedHistory,
   seedProducts,
   seedShops,
@@ -14,7 +15,7 @@ import {
 } from './data'
 import type { Profile } from './onboarding'
 
-type Cart = { shopId: string | null; items: Record<string, number> }
+type Cart = { shopId: string | null; items: Record<string, number>; deliveryDistanceKm: number }
 
 type LazyHandState = {
   shops: Shop[]
@@ -31,12 +32,15 @@ type LazyHandState = {
   setProfile: (profile: Profile) => void
   addItem: (productId: string) => void
   removeItem: (productId: string) => void
+  setDeliveryDistance: (distanceKm: number) => void
   resolveConflict: (replace: boolean) => void
   placeOrder: (payment: Payment, address: string) => Order | null
   reorder: (order: Order) => void
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
   toggleShopOpen: (shopId: string) => void
   toggleStock: (productId: string) => void
+  addProduct: (product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => void
+  updateProduct: (product: Product) => void
   updatePrice: (productId: string, price: number) => void
 }
 
@@ -58,7 +62,7 @@ let orderCounter = 2410
 export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [shops, setShops] = useState(seedShops)
   const [products, setProducts] = useState(seedProducts)
-  const [cart, setCart] = useState<Cart>({ shopId: null, items: {} })
+  const [cart, setCart] = useState<Cart>({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
   const [conflictProductId, setConflictProductId] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
@@ -83,7 +87,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
           setConflictProductId(productId)
           return current
         }
-        return { shopId: product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
+        return { ...current, shopId: product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
       })
     },
     [productById, shopById],
@@ -91,19 +95,21 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
 
   const removeItem = useCallback((productId: string) => {
     setCart(current => {
-      const qty = (current.items[productId] ?? 0) - 1
       const items = { ...current.items }
-      if (qty <= 0) delete items[productId]
-      else items[productId] = qty
-      return { shopId: Object.keys(items).length ? current.shopId : null, items }
+      delete items[productId]
+      return { ...current, shopId: Object.keys(items).length ? current.shopId : null, items }
     })
+  }, [])
+
+  const setDeliveryDistance = useCallback((distanceKm: number) => {
+    setCart(current => ({ ...current, deliveryDistanceKm: distanceKm }))
   }, [])
 
   const resolveConflict = useCallback(
     (replace: boolean) => {
       if (replace && conflictProductId) {
         const product = productById[conflictProductId]
-        setCart({ shopId: product.shopId, items: { [conflictProductId]: 1 } })
+        setCart({ shopId: product.shopId, items: { [conflictProductId]: 1 }, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
       }
       setConflictProductId(null)
     },
@@ -118,7 +124,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         id: `LH${orderCounter}`,
         shopId: cart.shopId,
         lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
-        ...billFor(cartTotal),
+        ...billFor(cartTotal, cart.deliveryDistanceKm),
         payment,
         status: 'placed',
         placedAt: 'Today',
@@ -126,10 +132,10 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         address,
       }
       setOrders(list => [order, ...list])
-      setCart({ shopId: null, items: {} })
+      setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
       return order
     },
-    [cart.shopId, cartLines, cartTotal, profile.name],
+    [cart.shopId, cart.deliveryDistanceKm, cartLines, cartTotal, profile.name],
   )
 
   const reorder = useCallback(
@@ -139,7 +145,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         const product = productById[line.productId]
         if (product?.inStock) items[line.productId] = line.qty
       }
-      setCart({ shopId: Object.keys(items).length ? order.shopId : null, items })
+      setCart({ shopId: Object.keys(items).length ? order.shopId : null, items, deliveryDistanceKm: order.deliveryDistanceKm })
     },
     [productById],
   )
@@ -154,6 +160,15 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
 
   const toggleStock = useCallback((productId: string) => {
     setProducts(list => list.map(p => (p.id === productId ? { ...p, inStock: !p.inStock } : p)))
+  }, [])
+
+  const addProduct = useCallback((product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => {
+    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    setProducts(list => [{ ...product, id, shopId: product.shopId ?? 'gupta' }, ...list])
+  }, [])
+
+  const updateProduct = useCallback((product: Product) => {
+    setProducts(list => list.map(item => (item.id === product.id ? product : item)))
   }, [])
 
   const updatePrice = useCallback((productId: string, price: number) => {
@@ -175,12 +190,15 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     setProfile,
     addItem,
     removeItem,
+    setDeliveryDistance,
     resolveConflict,
     placeOrder,
     reorder,
     setOrderStatus,
     toggleShopOpen,
     toggleStock,
+    addProduct,
+    updateProduct,
     updatePrice,
   }
 

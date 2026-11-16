@@ -80,7 +80,7 @@ export const seedProducts: Product[] = [
 ]
 
 export type OrderStatus = 'placed' | 'accepted' | 'ready' | 'picked' | 'delivered' | 'rejected'
-export type Payment = 'cod' | 'upi'
+export type Payment = 'cod'
 export type OrderLine = { productId: string; name: string; price: number; qty: number }
 
 export type Order = {
@@ -90,6 +90,8 @@ export type Order = {
   itemTotal: number
   deliveryFee: number
   platformFee: number
+  deliveryDistanceKm: number
+  riderPayout: number
   total: number
   payment: Payment
   status: OrderStatus
@@ -99,15 +101,46 @@ export type Order = {
   riderName?: string
 }
 
-export const FREE_DELIVERY_AT = 299
-export const DELIVERY_FEE = 15
-export const PLATFORM_FEE = 5
-export const RIDER_PAY_PER_TRIP = 20
+export const DEFAULT_DELIVERY_DISTANCE_KM = 4
 
-export function billFor(itemTotal: number) {
-  const deliveryFee = itemTotal === 0 || itemTotal >= FREE_DELIVERY_AT ? 0 : DELIVERY_FEE
-  const platformFee = itemTotal === 0 ? 0 : PLATFORM_FEE
-  return { itemTotal, deliveryFee, platformFee, total: itemTotal + deliveryFee + platformFee }
+export const DELIVERY_SLABS = [
+  { label: '0–2 km', maxDistanceKm: 2, customerFee: 29, riderPayout: 20 },
+  { label: '2–3 km', maxDistanceKm: 3, customerFee: 34, riderPayout: 23 },
+  { label: '3–4 km', maxDistanceKm: 4, customerFee: 39, riderPayout: 26 },
+  { label: '4–5 km', maxDistanceKm: 5, customerFee: 44, riderPayout: 29 },
+  { label: '5–6 km', maxDistanceKm: 6, customerFee: 49, riderPayout: 32 },
+] as const
+
+export const PLATFORM_FEE_SLABS = [
+  { label: 'Below ₹179', maxOrderValue: 178, fee: 5 },
+  { label: '₹179–₹299', maxOrderValue: 299, fee: 9 },
+  { label: '₹300–₹499', maxOrderValue: 499, fee: 14 },
+  { label: '₹500–₹799', maxOrderValue: 799, fee: 19 },
+  { label: '₹800–₹999', maxOrderValue: 999, fee: 24 },
+  { label: '₹1,000+', maxOrderValue: Number.POSITIVE_INFINITY, fee: 29 },
+] as const
+
+export function deliverySlabFor(distanceKm: number) {
+  return DELIVERY_SLABS.find(slab => distanceKm <= slab.maxDistanceKm) ?? DELIVERY_SLABS[DELIVERY_SLABS.length - 1]
+}
+
+export function platformFeeFor(itemTotal: number) {
+  if (itemTotal <= 0) return 0
+  return PLATFORM_FEE_SLABS.find(slab => itemTotal <= slab.maxOrderValue)?.fee ?? PLATFORM_FEE_SLABS[PLATFORM_FEE_SLABS.length - 1].fee
+}
+
+export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false) {
+  const slab = deliverySlabFor(distanceKm)
+  const deliveryFee = itemTotal <= 0 || shopSelfDelivers ? 0 : slab.customerFee
+  const platformFee = platformFeeFor(itemTotal)
+  return {
+    itemTotal,
+    deliveryFee,
+    platformFee,
+    deliveryDistanceKm: distanceKm,
+    riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
+    total: itemTotal + deliveryFee + platformFee,
+  }
 }
 
 export const seedHistory: Order[] = [
@@ -121,7 +154,7 @@ export const seedHistory: Order[] = [
     ...billFor(101),
   },
   {
-    id: 'LH2377', shopId: 'raj', payment: 'upi', status: 'delivered', placedAt: '8 Nov', customerName: 'You', address: '',
+    id: 'LH2377', shopId: 'raj', payment: 'cod', status: 'delivered', placedAt: '8 Nov', customerName: 'You', address: '',
     lines: [
       { productId: 'p9', name: 'Toor Dal', price: 165, qty: 1 },
       { productId: 'p10', name: 'Sugar', price: 48, qty: 2 },
