@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
+import Image from 'next/image'
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,7 +9,6 @@ import {
   Check,
   ChevronRight,
   Compass,
-  Hand,
   Heart,
   LocateFixed,
   MapPin,
@@ -51,9 +51,8 @@ export default function LazyHandWebApp() {
     return (
       <main className="min-h-svh bg-[#fbf8f3] px-5 py-6 text-[#252c37] sm:px-10 sm:py-8">
         <div className="mx-auto flex min-h-[calc(100svh-3rem)] w-full max-w-6xl flex-col">
-          <header className="flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-2xl bg-[#c2410c] text-white shadow-sm"><Hand size={22} strokeWidth={2.3} /></span>
-            <span className="text-xl font-black tracking-[-0.06em]">LazyHand</span>
+          <header className="flex items-center">
+            <Image src="/lazyhand-logo.png" alt="LazyHand" width={196} height={90} priority className="h-auto w-40 object-contain sm:w-48" />
           </header>
           <section className="grid flex-1 items-center gap-8 py-10 md:grid-cols-[1.05fr_.95fr] md:gap-14 md:py-14">
             <div className="order-2 max-w-xl md:order-1">
@@ -91,7 +90,11 @@ export default function LazyHandWebApp() {
         <div className="mx-auto flex min-h-[calc(100svh-3rem)] w-full max-w-2xl flex-col">
           <header className="flex items-center gap-3"><Button variant="outline" size="icon" aria-label="Back to welcome" onClick={() => go('welcome')} className="size-10 rounded-xl bg-white"><ArrowLeft /></Button><span className="font-bold">Your neighborhood</span></header>
           <form onSubmit={continueToRole} className="my-auto py-10">
-            <div className="mb-6 grid size-16 place-items-center rounded-[1.35rem] bg-[#f97316] text-white"><LocateFixed size={30} /></div>
+            <div aria-hidden="true" className="relative mb-7 grid size-24 place-items-center">
+              <div className="absolute inset-0 animate-[spin_14s_linear_infinite] rounded-full border border-dashed border-[#d7b69b] motion-reduce:animate-none"><span className="absolute left-1/2 top-0 size-3 -translate-x-1/2 rounded-full bg-[#f97316] shadow-[0_0_0_5px_#fbf8f3]" /></div>
+              <div className="absolute inset-3 animate-[spin_9s_linear_infinite_reverse] rounded-full border border-[#e8d8c7] motion-reduce:animate-none"><span className="absolute bottom-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-[#9a3412] shadow-[0_0_0_4px_#fbf8f3]" /></div>
+              <div className="grid size-12 place-items-center rounded-2xl bg-[#f97316] text-white shadow-[0_10px_24px_-12px_#9a3412]"><LocateFixed size={23} /></div>
+            </div>
             <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#9a3412]">A better local experience starts here</p>
             <h1 className="mt-3 text-4xl font-black tracking-[-0.055em] sm:text-5xl">Start with your location.</h1>
             <p className="mt-4 max-w-xl leading-7 text-[#727984]">The pilot PIN is 845420. A PIN covers a wider area than our 6 km delivery range, so coverage is not confirmed until the shop hub is set.</p>
@@ -141,7 +144,7 @@ export default function LazyHandWebApp() {
     <main className="min-h-svh bg-[#fbf8f3] px-4 pb-28 pt-5 text-[#252c37] sm:px-8 sm:pt-8">
       <div className="mx-auto w-full max-w-5xl">
         <header className="flex items-center justify-between gap-4">
-          <button onClick={() => go('discover')} className="flex items-center gap-2.5 rounded-lg text-left" aria-label="LazyHand home"><span className="grid size-10 place-items-center rounded-xl bg-[#c2410c] text-white"><Hand size={20} /></span><span className="text-lg font-black tracking-[-0.06em]">LazyHand</span></button>
+          <button onClick={() => go('discover')} className="rounded-lg text-left" aria-label="LazyHand home"><Image src="/lazyhand-logo.png" alt="LazyHand" width={148} height={68} className="h-auto w-32 object-contain" /></button>
           <button onClick={() => go('location')} className="flex min-w-0 items-center gap-2 rounded-xl border border-[#ece6de] bg-white px-3 py-2 text-left"><MapPin size={17} className="shrink-0 text-[#c2410c]" /><span className="min-w-0"><span className="block text-[10px] font-black uppercase tracking-widest text-[#727984]">Your area</span><span className="block truncate text-xs font-bold">{pin || 'Set location to check availability'}</span></span><ChevronRight size={16} className="shrink-0 text-[#c2410c]" /></button>
         </header>
 
