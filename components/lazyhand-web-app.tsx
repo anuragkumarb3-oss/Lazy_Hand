@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Home, LayoutGrid, RefreshCw, ShoppingBag, UserRound } from 'lucide-react'
 import type { CategoryId, Role } from './lazyhand/data'
 import {
@@ -22,6 +22,7 @@ type Tab = 'home' | 'categories' | 'orders' | 'profile'
 type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'payment' } | { kind: 'track'; orderId: string } | null
 
 const initialLocation: LocationState = { status: 'idle', area: '', message: '' }
+const SESSION_STORAGE_KEY = 'lazyhand-device-session'
 
 async function reverseGeocode(lat: number, lon: number) {
   const controller = new AbortController()
@@ -78,6 +79,7 @@ function LazyHandShell() {
   const { profile, setProfile, cartCount } = useLazyHand()
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
+  const [sessionReady, setSessionReady] = useState(false)
   const [pendingRole, setPendingRole] = useState<Role>('customer')
   const [activeRole, setActiveRole] = useState<Role>('customer')
   const [loginPhone, setLoginPhone] = useState('')
@@ -85,6 +87,35 @@ function LazyHandShell() {
   const [tab, setTab] = useState<Tab>('home')
   const [category, setCategory] = useState<CategoryId>('snacks')
   const [overlay, setOverlay] = useState<Overlay>(null)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SESSION_STORAGE_KEY)
+      if (stored) {
+        const session = JSON.parse(stored) as { profile?: typeof profile; role?: Role }
+        if (session.profile && typeof session.profile.phone === 'string' && ['customer', 'shopkeeper', 'rider'].includes(session.role ?? '')) {
+          setProfile(session.profile)
+          setActiveRole(session.role!)
+          setTab('home')
+          setStage('app')
+        } else {
+          window.localStorage.removeItem(SESSION_STORAGE_KEY)
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY)
+    } finally {
+      setSessionReady(true)
+    }
+  }, [setProfile])
+
+  const saveSession = (role: Role, sessionProfile = profile) => {
+    try {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ role, profile: sessionProfile }))
+    } catch {
+      return
+    }
+  }
 
   const area = profile.village || location.area || 'Set your location'
 
@@ -102,7 +133,7 @@ function LazyHandShell() {
     window.scrollTo({ top: 0 })
   }
 
-  if (stage === 'loading') return <LoadingScreen />
+  if (!sessionReady || stage === 'loading') return <LoadingScreen />
 
   if (stage === 'welcome')
     return (
@@ -140,7 +171,9 @@ function LazyHandShell() {
       <OtpScreen
         phone={loginPhone}
         onVerified={() => {
-          if (profile.phone !== loginPhone) setProfile({ ...profile, phone: loginPhone })
+          const signedInProfile = profile.phone === loginPhone ? profile : { ...profile, phone: loginPhone }
+          if (profile.phone !== loginPhone) setProfile(signedInProfile)
+          saveSession(afterOtp, signedInProfile)
           enterApp(afterOtp)
         }}
         onBack={() => setStage(profile.phone && profile.phone === loginPhone ? 'signup' : 'login')}
@@ -152,6 +185,7 @@ function LazyHandShell() {
         initial={{ ...profile, role: pendingRole, village: profile.village || (location.status === 'granted' ? location.area : '') }}
         onCreate={created => {
           setProfile(created)
+          saveSession(created.role, created)
           enterApp(created.role)
         }}
         onLogin={() => setStage('login')}
@@ -160,6 +194,7 @@ function LazyHandShell() {
     )
 
   const logout = () => {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY)
     setProfile({ ...emptyProfile })
     setOverlay(null)
     setStage('welcome')

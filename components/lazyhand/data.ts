@@ -92,6 +92,8 @@ export type Order = {
   platformFee: number
   deliveryDistanceKm: number
   riderPayout: number
+  sellerDeliveryDeduction: number
+  sellerPayout: number
   total: number
   payment: Payment
   status: OrderStatus
@@ -149,6 +151,8 @@ export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANC
     platformFee,
     deliveryDistanceKm: distanceKm,
     riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
+    sellerDeliveryDeduction: deliveryDiscount,
+    sellerPayout: Math.max(0, itemTotal - deliveryDiscount),
     total: itemTotal + deliveryFee + platformFee,
   }
 }

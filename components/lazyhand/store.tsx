@@ -49,6 +49,8 @@ const LazyHandContext = createContext<LazyHandState | null>(null)
 export const emptyProfile: Profile = {
   name: '',
   phone: '',
+  whatsappNumber: '',
+  whatsappAlertsEnabled: false,
   village: '',
   landmark: '',
   role: 'customer',

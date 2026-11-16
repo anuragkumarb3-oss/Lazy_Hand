@@ -19,10 +19,12 @@ import {
   Store,
   Truck,
 } from 'lucide-react'
+import { Lottie } from 'lottie-react'
+import orderSuccessAnimation from '../../public/animations/order-success.json'
 import { cn } from '@/lib/utils'
 import { billFor, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, deliverySlabFor, FREE_DELIVERY_THRESHOLD, rupee, type Order, type OrderStatus, type Role } from './data'
 import { useLazyHand } from './store'
-import { BackButton, LoadingScreen, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
+import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
 function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
@@ -62,15 +64,9 @@ function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { it
         <dd>{rupee(bill.itemTotal)}</dd>
       </div>
       <div className="flex justify-between">
-        <dt className="text-muted-ink">Delivery · {deliverySlabFor(bill.deliveryDistanceKm).label}</dt>
-        <dd>{bill.deliveryDiscount > 0 ? <span className="line-through text-muted-ink">{rupee(bill.deliveryFeeBeforeDiscount)}</span> : rupee(bill.deliveryFee)}</dd>
+        <dt className="text-muted-ink">Delivery</dt>
+        <dd className={bill.deliveryFee === 0 ? 'font-semibold text-[#15803D]' : undefined}>{bill.deliveryFee === 0 ? 'Free' : rupee(bill.deliveryFee)}</dd>
       </div>
-      {bill.deliveryDiscount > 0 && (
-        <div className="flex justify-between text-[#15803D]">
-          <dt>Free delivery unlocked</dt>
-          <dd className="font-semibold">−{rupee(bill.deliveryDiscount)}</dd>
-        </div>
-      )}
       <div className="flex justify-between">
         <dt className="text-muted-ink">Platform fee</dt>
         <dd className="font-semibold">
@@ -210,6 +206,7 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
 export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
   const { cartTotal, cartCount, cartLines, cart, shopById, profile, placeOrder } = useLazyHand()
   const [error, setError] = useState('')
+  const [placedOrder, setPlacedOrder] = useState<Order | null>(null)
   const [isPlacing, setIsPlacing] = useState(false)
   const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
   const addressMissing = !address || address === 'Set your location'
@@ -226,12 +223,21 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
     }
     const order = placeOrder('cod', address)
     if (order) {
+      setPlacedOrder(order)
       setIsPlacing(true)
-      window.setTimeout(() => onPlaced(order), 950)
     }
   }
 
-  if (isPlacing) return <LoadingScreen title="Order placed" detail="Confirming the shop and finding a nearby rider…" />
+  if (isPlacing && placedOrder) return (
+    <main className="flex min-h-svh flex-col items-center justify-center px-6 text-center" aria-live="polite" aria-atomic="true">
+      <div className="w-full max-w-56" aria-hidden="true">
+        <Lottie src={orderSuccessAnimation} loop={false} autoplay className="w-full" subscriptions={{ complete: () => onPlaced(placedOrder) }} />
+      </div>
+      <p className="mt-2 text-xs font-bold uppercase tracking-[0.16em] text-[#15803D]">Order confirmed</p>
+      <h1 className="mt-2 text-2xl font-bold tracking-tight">Your order is placed</h1>
+      <p className="mt-2 max-w-xs text-sm leading-6 text-muted-ink">We&apos;re confirming with the shop and finding a nearby rider.</p>
+    </main>
+  )
 
   return (
     <div className="flex min-h-svh flex-col pb-28">

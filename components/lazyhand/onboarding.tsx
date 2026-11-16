@@ -26,6 +26,8 @@ export type LocationState = {
 export type Profile = {
   name: string
   phone: string
+  whatsappNumber: string
+  whatsappAlertsEnabled: boolean
   village: string
   landmark: string
   role: Role

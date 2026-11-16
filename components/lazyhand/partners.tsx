@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
+import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
@@ -629,7 +629,10 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
 }
 
 function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) {
-  const { profile } = useLazyHand()
+  const { profile, setProfile } = useLazyHand()
+  const whatsappNumber = profile.whatsappNumber.replace(/\D/g, '').slice(-10)
+  const validWhatsappNumber = /^[6-9]\d{9}$/.test(whatsappNumber)
+
   return (
     <section className="mt-4 flex flex-col gap-3">
       <div className="rounded-2xl border border-line bg-white p-4">
@@ -642,6 +645,58 @@ function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) 
         {profile.shopName && <p className="mt-2 text-xs text-muted-ink">Registered shop: {profile.shopName} ({profile.shopType}) — pending review. You&apos;re managing a sample shop until it&apos;s approved.</p>}
         {profile.vehicle && <p className="mt-2 text-xs text-muted-ink">Vehicle: {profile.vehicle}</p>}
       </div>
+
+      {role === 'Shopkeeper' && (
+        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="whatsapp-alerts-heading">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#E8F7ED] text-[#16803C]">
+              <MessageCircle className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 id="whatsapp-alerts-heading" className="text-sm font-bold">WhatsApp order alerts</h2>
+              <p className="mt-1 text-xs leading-5 text-muted-ink">Set the shop&apos;s WhatsApp number. Alerts stay off until a VPS connection is available.</p>
+            </div>
+          </div>
+
+          <label htmlFor="seller-whatsapp" className="mt-4 block text-xs font-semibold">Shop WhatsApp number</label>
+          <div className="mt-1.5 flex h-11 items-center rounded-xl border border-line bg-white focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15">
+            <span className="border-r border-line px-3 text-sm text-muted-ink">+91</span>
+            <input
+              id="seller-whatsapp"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              maxLength={10}
+              value={whatsappNumber}
+              onChange={event => setProfile({ ...profile, whatsappNumber: event.target.value.replace(/\D/g, '').slice(0, 10) })}
+              placeholder="98765 43210"
+              aria-describedby="seller-whatsapp-help"
+              aria-invalid={Boolean(whatsappNumber) && !validWhatsappNumber}
+              className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none"
+            />
+          </div>
+          <p id="seller-whatsapp-help" className="mt-1.5 text-[11px] leading-4 text-muted-ink">Use a WhatsApp number with a valid 10-digit Indian mobile number.</p>
+          {Boolean(whatsappNumber) && !validWhatsappNumber && <p role="alert" className="mt-1 text-xs text-[#B91C1C]">Enter a valid 10-digit mobile number starting with 6–9.</p>}
+
+          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-[#F7F8F6] px-3">
+            <input
+              type="checkbox"
+              checked={profile.whatsappAlertsEnabled}
+              disabled={!validWhatsappNumber}
+              onChange={event => setProfile({ ...profile, whatsappAlertsEnabled: event.target.checked })}
+              className="size-4 accent-[#16803C]"
+              aria-describedby="seller-alerts-status"
+            />
+            <span className="text-xs"><strong>Order notifications</strong><span className="mt-0.5 block text-[11px] text-muted-ink">{profile.whatsappAlertsEnabled && validWhatsappNumber ? 'Enabled in this preview' : 'Off'}</span></span>
+          </label>
+
+          <div id="seller-alerts-status" className="mt-3 rounded-xl border border-dashed border-line bg-[#FAF9F6] p-3" role="status" aria-live="polite">
+            <p className="text-xs font-semibold">{validWhatsappNumber ? 'Manual mode · ready for VPS pairing' : 'Add a number to get started'}</p>
+            <p className="mt-1 text-[11px] leading-4 text-muted-ink">{validWhatsappNumber ? 'This preview does not send WhatsApp messages or show a scannable pairing QR. Until your VPS bridge is connected, use the Orders tab to check new orders manually.' : 'A pairing QR will be shown once a WhatsApp bridge is connected. No QR or messages are simulated here.'}</p>
+          </div>
+        </section>
+      )}
+
       <SecondaryButton onClick={onExit}>Switch to customer app</SecondaryButton>
     </section>
   )
