@@ -324,15 +324,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
   const submit = (event: FormEvent) => {
     event.preventDefault()
     const next: SignupErrors = {}
-    if (form.name.trim().length < 2) next.name = 'Enter your full name'
-    const phoneError = validatePhone(form.phone)
-    if (phoneError) next.phone = phoneError
-    if (!form.village.trim()) next.village = 'Enter your village, tola or ward'
-    if (form.role === 'shopkeeper') {
-      if (!form.shopName.trim()) next.shopName = 'Enter your shop name'
-      if (!form.shopType) next.shopType = 'Choose what your shop sells'
-    }
-    if (form.role === 'rider' && !form.vehicle) next.vehicle = 'Choose your vehicle'
+    if (form.name.trim().length < 2) next.name = 'Enter at least 2 characters'
     setErrors(next)
     const firstInvalid = Object.keys(next)[0]
     if (firstInvalid) {
@@ -343,7 +335,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
       target?.focus()
       return
     }
-    onCreate({ ...form, name: form.name.trim(), village: form.village.trim(), landmark: form.landmark.trim(), shopName: form.shopName.trim() })
+    onCreate({ ...form, name: form.name.trim() })
   }
 
   return (
@@ -352,24 +344,9 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
         <BackButton onClick={onBack} />
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Create your account</h1>
-      <p className="mt-2 text-sm text-muted-ink">Tell us where to deliver — village accurate.</p>
+      <p className="mt-2 text-sm text-muted-ink">One quick detail to get started.</p>
       <form onSubmit={submit} noValidate className="mt-6 flex flex-col gap-4">
-        <Field id="signup-name" label="Full name" Icon={UserRound} autoComplete="name" placeholder="Ramesh Kumar" value={form.name} onChange={e => update('name', e.target.value)} error={errors.name} />
-        <Field
-          id="signup-phone"
-          label="Mobile number"
-          Icon={Phone}
-          prefix="+91"
-          inputMode="numeric"
-          autoComplete="tel-national"
-          placeholder="98765 43210"
-          maxLength={10}
-          value={form.phone}
-          onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
-          error={errors.phone}
-        />
-        <Field id="signup-village" label="Village / Tola / Ward" Icon={MapPin} autoComplete="address-level3" placeholder="Rampur, Ward 4" value={form.village} onChange={e => update('village', e.target.value)} error={errors.village} />
-        <Field id="signup-landmark" label="Nearest landmark" optional Icon={Navigation} placeholder="Near Shiv Mandir" value={form.landmark} onChange={e => update('landmark', e.target.value)} />
+        <Field id="signup-name" label="What can we call you?" Icon={UserRound} autoComplete="given-name" placeholder="e.g. Ramesh" value={form.name} onChange={e => update('name', e.target.value)} error={errors.name} />
 
         <div className="rounded-xl border border-line bg-[#FFF8F1] p-3 text-sm">
           <p className="font-semibold">{form.role === 'shopkeeper' ? 'Shopkeeper account' : 'Customer account'}</p>
@@ -378,35 +355,11 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
           </p>
         </div>
 
-        {form.role === 'shopkeeper' && (
-          <>
-            <Field id="signup-shopName" label="Shop name" Icon={Store} placeholder="Gupta Kirana Store" value={form.shopName} onChange={e => update('shopName', e.target.value)} error={errors.shopName} />
-            <ChipGroup
-              id="signup-shopType"
-              label="Shop sells"
-              options={['Kirana', 'Dairy', 'Vegetables', 'Sweets'].map(v => ({ value: v, label: v }))}
-              value={form.shopType}
-              onChange={v => update('shopType', v)}
-              error={errors.shopType}
-            />
-          </>
-        )}
-        {form.role === 'rider' && (
-          <ChipGroup
-            id="signup-vehicle"
-            label="Your vehicle"
-            options={['Bicycle', 'Motorbike', 'Scooter'].map(v => ({ value: v, label: v }))}
-            value={form.vehicle}
-            onChange={v => update('vehicle', v)}
-            error={errors.vehicle}
-          />
-        )}
-
         <PrimaryButton type="submit" className="mt-2">{form.role === 'shopkeeper' ? 'Create shopkeeper account' : 'Create customer account'}</PrimaryButton>
         <p className="text-center text-xs leading-5 text-muted-ink">
           Want to deliver for LazyHand? <a href="mailto:help@lazyhand.app?subject=Delivery%20partner%20request" className="font-semibold text-brand-deep underline underline-offset-2">Talk to support</a>
         </p>
-        <p className="text-center text-[11px] leading-5 text-muted-ink">Fields marked Required are needed to set up your demo profile. Your delivery area helps show nearby shops. This preview does not save your details to an account.</p>
+        <p className="text-center text-[11px] leading-5 text-muted-ink">Your name personalizes your experience. This preview does not save your details to an account.</p>
       </form>
       <p className="mt-6 text-center text-sm text-muted-ink">
         Already registered?{' '}

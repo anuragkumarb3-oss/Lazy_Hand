@@ -149,9 +149,7 @@ function LazyHandShell() {
         initial={{ ...profile, role: pendingRole, village: profile.village || (location.status === 'granted' ? location.area : '') }}
         onCreate={created => {
           setProfile(created)
-          setLoginPhone(created.phone)
-          setAfterOtp(created.role)
-          setStage('otp')
+          enterApp(created.role)
         }}
         onLogin={() => setStage('login')}
         onBack={() => setStage('location')}
