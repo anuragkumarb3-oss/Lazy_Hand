@@ -10,6 +10,7 @@
     "dev:web": "expo start --web",
     "android": "expo start --android",
     "build": "next build",
+    "typecheck": "tsc --noEmit",
     "start": "next start"
   },
   "dependencies": {

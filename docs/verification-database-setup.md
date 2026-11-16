@@ -4,7 +4,7 @@ This guide describes the backend needed for the rider/seller manual-review workf
 
 ## Current app state
 
-The checked-out app is a Next.js App Router preview. Rider and seller screens, OTP, role switching, and sample orders are currently frontend/demo flows. They do not authenticate real users or persist applications. Do not use the demo OTP or role switch as an authorization boundary for identity documents or admin decisions.
+The checked-out project is a Next.js App Router app with Expo code and Supabase phone OTP authentication in the client. The connected Supabase project's public schema currently has no tables, so profile, order, catalog, and seller-application persistence cannot be considered production-ready. Catalog and partner screens still include seeded/demo behavior, and the manual identity-verification workflow described here is not implemented. Do not use client-side role switching as an authorization boundary for sensitive data or admin decisions.
 
 ## Recommended architecture
 

@@ -53,6 +53,17 @@ async function getAuthenticatedClient() {
   return { supabase, user: error ? null : user }
 }
 
+function isSameOriginRequest(request: Request) {
+  const origin = request.headers.get('origin')
+  if (!origin) return false
+
+  try {
+    return new URL(origin).origin === new URL(request.url).origin
+  } catch {
+    return false
+  }
+}
+
 export async function GET() {
   const { supabase, user } = await getAuthenticatedClient()
   if (!user) return NextResponse.json({ error: 'Sign in to view your orders.' }, { status: 401 })
@@ -64,10 +75,17 @@ export async function GET() {
     .order('placed_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: 'Orders could not be loaded.' }, { status: 500 })
-  return NextResponse.json({ orders: (data as OrderRow[]).map(toOrder) })
+  return NextResponse.json(
+    { orders: (data as OrderRow[]).map(toOrder) },
+    { headers: { 'Cache-Control': 'private, no-store' } },
+  )
 }
 
 export async function POST(request: Request) {
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json({ error: 'Cross-origin order requests are not allowed.' }, { status: 403 })
+  }
+
   const { supabase, user } = await getAuthenticatedClient()
   if (!user) return NextResponse.json({ error: 'Sign in before placing an order.' }, { status: 401 })
 
@@ -147,5 +165,8 @@ export async function POST(request: Request) {
     .single()
 
   if (error || !data) return NextResponse.json({ error: 'Your order could not be saved. Please try again.' }, { status: 500 })
-  return NextResponse.json({ order: toOrder(data as OrderRow) }, { status: 201 })
+  return NextResponse.json(
+    { order: toOrder(data as OrderRow) },
+    { status: 201, headers: { 'Cache-Control': 'private, no-store' } },
+  )
 }
