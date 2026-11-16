@@ -1,9 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import useSWR from 'swr'
+import { createClient } from '@/lib/supabase/client'
 import { ChevronDown, ChevronRight, Clock, MapPin, Search, Share2, ShoppingBag, Star, Store, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { categories, categoryById, rupee, type CategoryId, type Product } from './data'
+import { categoryById, rupee, type CategoryId, type Product } from './data'
 import { useLazyHand } from './store'
 import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
@@ -88,16 +90,22 @@ export function ConflictSheet() {
   )
 }
 
-export function CustomerHome({ area, onChangeLocation, onOpenStore, onOpenCategory }: { area: string; onChangeLocation: () => void; onOpenStore: (id: string) => void; onOpenCategory: (id: CategoryId) => void }) {
+type DynamicCategory = { id: string; name: string; scope: 'general' | 'restaurant'; image_url: string | null; icon: string | null; display_order: number }
+
+export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: string; onChangeLocation: () => void; onOpenStore: (id: string) => void }) {
   const { shops, products } = useLazyHand()
+  const { data: liveCategories = [] } = useSWR('home-catalog-categories', async () => {
+    const { data, error } = await createClient().from('catalog_categories').select('id,name,scope,image_url,icon,display_order').eq('scope', 'general').eq('is_active', true).eq('is_visible', true).order('display_order')
+    if (error) throw error
+    return data as DynamicCategory[]
+  })
   const [query, setQuery] = useState('')
-  const [chip, setChip] = useState<CategoryId | 'all'>('all')
   const term = query.trim().toLowerCase()
 
   const results = useMemo(() => {
-    if (!term && chip === 'all') return null
-    return products.filter(p => (chip === 'all' || p.category === chip) && (!term || p.name.toLowerCase().includes(term) || categoryById[p.category].name.toLowerCase().includes(term)))
-  }, [products, term, chip])
+    if (!term) return null
+    return products.filter(p => p.name.toLowerCase().includes(term) || categoryById[p.category].name.toLowerCase().includes(term))
+  }, [products, term])
 
   const sortedShops = [...shops].sort((a, b) => Number(b.open) - Number(a.open))
 
@@ -128,24 +136,17 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore, onOpenCatego
               </button>
             )}
           </div>
-          <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]" role="group" aria-label="Filter by category">
-            {(['all', 'snacks', 'drinks', 'dairy', 'staples', 'veg'] as const).map(id => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={chip === id}
-                onClick={() => setChip(id)}
-                className={cn('h-8 shrink-0 rounded-full px-3.5 text-xs font-semibold transition', chip === id ? 'bg-white text-brand-deep' : 'bg-white/20 text-white')}
-              >
-                {id === 'all' ? 'All' : categoryById[id].short}
-              </button>
-            ))}
-          </div>
+          <a href="/categories" className="mt-3 inline-flex h-8 items-center rounded-full bg-white/20 px-3.5 text-xs font-semibold text-white">Explore all store categories</a>
         </div>
       </header>
 
+      <section aria-label="Shop by section" className="mx-auto mt-4 grid max-w-md grid-cols-2 gap-2 px-4">
+        <a href="/categories" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-center text-sm font-semibold"><Store className="size-4 text-brand-deep" aria-hidden="true" />General shops</a>
+        <a href="/restaurants" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-center text-sm font-semibold"><ShoppingBag className="size-4 text-brand-deep" aria-hidden="true" />Restaurants</a>
+      </section>
+
       <p role="status" className="mx-auto max-w-md px-4 pt-3 text-xs leading-5 text-muted-ink">
-        Demo catalog: shops and products are examples. Cart and order updates run in this preview only and reset when you leave.
+        Demo catalog: sample shops and legacy products are examples. Dynamic category browsing uses live catalog data.
       </p>
 
       <div className="mx-auto max-w-md px-4">
@@ -170,19 +171,16 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore, onOpenCatego
             <section aria-labelledby="bestsellers-heading" className="mt-5">
               <div className="flex items-end justify-between">
                 <h2 id="bestsellers-heading" className="text-base font-bold">Bestsellers</h2>
-                <button type="button" onClick={() => onOpenCategory('snacks')} className="text-xs font-semibold text-brand-deep">
-                  See all
-                </button>
+                <a href="/categories" className="text-xs font-semibold text-brand-deep">Browse all</a>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2.5">
-                {categories.slice(0, 6).map(c => (
-                  <button key={c.id} type="button" onClick={() => onOpenCategory(c.id)} className="flex flex-col items-center gap-2 rounded-2xl border border-line bg-white px-2 py-3 text-center transition active:scale-95">
-                    <span className={cn('grid size-12 place-items-center rounded-xl', c.tone)}>
-                      <c.Icon className="size-6" strokeWidth={1.75} aria-hidden="true" />
-                    </span>
-                    <span className="text-[11px] font-medium leading-4">{c.name}</span>
-                  </button>
+                {liveCategories.slice(0, 9).map(category => (
+                  <a key={category.id} href="/categories" className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-line bg-white px-2 py-3 text-center transition active:scale-95">
+                    {category.image_url ? <img src={category.image_url} alt="" className="size-12 rounded-xl object-cover" /> : <span className="grid size-12 place-items-center rounded-xl bg-peach text-sm font-bold text-brand-deep">{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}
+                    <span className="text-[11px] font-medium leading-4">{category.name}</span>
+                  </a>
                 ))}
+                {liveCategories.length === 0 && <p className="col-span-3 rounded-xl border border-dashed border-line bg-white p-4 text-center text-xs text-muted-ink">Categories are loading or none are currently visible.</p>}
               </div>
             </section>
 
@@ -226,54 +224,8 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore, onOpenCatego
   )
 }
 
-export function CategoriesScreen({ active, onSelect }: { active: CategoryId; onSelect: (id: CategoryId) => void }) {
-  const { products } = useLazyHand()
-  const list = products.filter(p => p.category === active)
-  return (
-    <div className="flex min-h-svh flex-col pb-40">
-      <header className="sticky top-0 z-10 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
-        <h1 className="text-lg font-bold">Categories</h1>
-      </header>
-      <div className="flex flex-1">
-        <nav aria-label="Categories" className="w-24 shrink-0 border-r border-line bg-white">
-          <ul>
-            {categories.map(c => {
-              const selected = c.id === active
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    aria-current={selected ? 'true' : undefined}
-                    onClick={() => onSelect(c.id)}
-                    className={cn('relative flex w-full flex-col items-center gap-1.5 px-1 py-3 text-center text-[10px] font-medium leading-3', selected ? 'bg-peach text-brand-deep' : 'text-muted-ink')}
-                  >
-                    {selected && <span className="absolute inset-y-2 left-0 w-1 rounded-r bg-brand" aria-hidden="true" />}
-                    <span className={cn('grid size-10 place-items-center rounded-xl', c.tone)}>
-                      <c.Icon className="size-5" strokeWidth={1.75} aria-hidden="true" />
-                    </span>
-                    {c.name}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </nav>
-        <section className="min-w-0 flex-1 px-3 pt-3" aria-labelledby="cat-heading">
-          <h2 id="cat-heading" className="text-sm font-bold">{categoryById[active].name}</h2>
-          <p className="text-xs text-muted-ink">{list.length} items from nearby shops</p>
-          {list.length ? (
-            <ul className="mt-2 rounded-2xl border border-line bg-white px-3">
-              {list.map(p => (
-                <ProductRow key={p.id} product={p} showShop />
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 rounded-2xl border border-line bg-white p-5 text-center text-sm text-muted-ink">No nearby shop sells this yet.</p>
-          )}
-        </section>
-      </div>
-    </div>
-  )
+export function CategoriesScreen() {
+  return <div className="flex min-h-svh flex-col gap-4 px-4 pb-40 pt-[max(env(safe-area-inset-top),20px)]"><header><h1 className="text-lg font-bold">Explore categories</h1><p className="mt-1 text-xs text-muted-ink">Browse editable categories from local shops or explore restaurant menus.</p></header><a href="/categories" className="flex min-h-20 items-center justify-between rounded-2xl border border-line bg-white p-4"><span><span className="block font-semibold">General shops</span><span className="mt-1 block text-xs text-muted-ink">Groceries, dairy, daily essentials and more</span></span><Store className="size-5 text-brand-deep" aria-hidden="true" /></a><a href="/restaurants" className="flex min-h-20 items-center justify-between rounded-2xl border border-line bg-white p-4"><span><span className="block font-semibold">Restaurants</span><span className="mt-1 block text-xs text-muted-ink">Browse separate restaurant menus</span></span><ShoppingBag className="size-5 text-brand-deep" aria-hidden="true" /></a></div>
 }
 
 export function StoreScreen({ shopId, onBack }: { shopId: string; onBack: () => void }) {

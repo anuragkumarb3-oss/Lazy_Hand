@@ -1,8 +1,12 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import useSWR from 'swr'
+import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
 import { Home, LayoutGrid, RefreshCw, ShoppingBag, UserRound } from 'lucide-react'
-import type { CategoryId, Role } from './lazyhand/data'
+import type { Order, Role } from './lazyhand/data'
+import { createClient as createSupabaseClient } from '@/lib/supabase/client'
+import { fetchProfile, saveProfile } from '@/lib/supabase/profiles'
 import {
   LocationScreen,
   LoginScreen,
@@ -10,6 +14,7 @@ import {
   SignupScreen,
   WelcomeScreen,
   type LocationState,
+  type Profile,
 } from './lazyhand/onboarding'
 import { CartBar, CategoriesScreen, ConflictSheet, CustomerHome, StoreScreen } from './lazyhand/customer-shop'
 import { CartScreen, OrderAgainScreen, PaymentScreen, ProfileScreen, TrackingScreen } from './lazyhand/customer-order'
@@ -22,6 +27,25 @@ type Tab = 'home' | 'categories' | 'orders' | 'profile'
 type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'payment' } | { kind: 'track'; orderId: string } | null
 
 const initialLocation: LocationState = { status: 'idle', area: '', message: '' }
+
+function friendlyAuthError(message: string, action: 'send' | 'verify') {
+  const normalized = message.toLowerCase()
+  if (normalized.includes('phone provider') || normalized.includes('phone sign') || normalized.includes('sms provider')) {
+    return 'Phone verification is not enabled for this Supabase project yet. Enable phone sign-in and configure SMS delivery to test it.'
+  }
+  if (normalized.includes('rate limit') || normalized.includes('too many')) {
+    return 'Too many attempts. Wait a little before requesting another code.'
+  }
+  if (action === 'verify' && (normalized.includes('otp') || normalized.includes('token') || normalized.includes('expired')) ) {
+    return 'That code is invalid or expired. Check the latest message and try again.'
+  }
+  if (action === 'send' && (normalized.includes('not found') || normalized.includes('no user'))) {
+    return 'We could not send a verification code. Check the number and try again.'
+  }
+  return action === 'send'
+    ? 'We could not send a verification code. Check the number and try again.'
+    : 'We could not verify that code. Please try again.'
+}
 
 async function reverseGeocode(lat: number, lon: number) {
   const controller = new AbortController()
@@ -75,18 +99,144 @@ function useLocation() {
 }
 
 function LazyHandShell() {
-  const { profile, setProfile, cartCount } = useLazyHand()
+  const { profile, setProfile, setOrders, cartCount } = useLazyHand()
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
+  const [sessionReady, setSessionReady] = useState(false)
   const [pendingRole, setPendingRole] = useState<Role>('customer')
   const [activeRole, setActiveRole] = useState<Role>('customer')
   const [loginPhone, setLoginPhone] = useState('')
   const [afterOtp, setAfterOtp] = useState<Role>('customer')
+  const [pendingProfile, setPendingProfile] = useState<Profile | null>(null)
+  const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
+  const [authenticatedPhone, setAuthenticatedPhone] = useState('')
+  const profileKey = authenticatedUserId ? ['lazyhand-profile', authenticatedUserId] as const : null
+  const { data: savedProfile, error: profileError, isLoading: profileLoading } = useSWR(
+    profileKey,
+    ([, userId]) => fetchProfile(userId),
+  )
+  const orderKey = authenticatedUserId ? `/api/orders?user=${authenticatedUserId}` : null
+  const { data: savedOrders } = useSWR(orderKey, async () => {
+    const response = await fetch('/api/orders')
+    if (!response.ok) throw new Error('Orders could not be loaded.')
+    return response.json() as Promise<{ orders: Order[] }>
+  })
   const [tab, setTab] = useState<Tab>('home')
-  const [category, setCategory] = useState<CategoryId>('snacks')
   const [overlay, setOverlay] = useState<Overlay>(null)
 
+  useEffect(() => {
+    let active = true
+    const supabase = createSupabaseClient()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      setAuthenticatedUserId(session?.user.id ?? null)
+      setAuthenticatedPhone(session?.user.phone?.replace(/^\+91/, '') ?? '')
+      if (!session) setSessionReady(true)
+    })
+
+    void supabase.auth.getUser().then(({ data: { user } }: { data: { user: User | null } }) => {
+      if (!active) return
+      setAuthenticatedUserId(user?.id ?? null)
+      setAuthenticatedPhone(user?.phone?.replace(/^\+91/, '') ?? '')
+      if (!user) setSessionReady(true)
+    }).catch(() => {
+      if (active) setSessionReady(true)
+    })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!authenticatedUserId || profileLoading) return
+    if (profileError) {
+      setSessionReady(true)
+      return
+    }
+
+    setProfile(savedProfile ?? { ...emptyProfile, phone: authenticatedPhone })
+    if (savedProfile) setActiveRole(savedProfile.role)
+    setTab('home')
+    setStage(current => current === 'welcome' ? 'app' : current)
+    setSessionReady(true)
+  }, [authenticatedPhone, authenticatedUserId, profileError, profileLoading, savedProfile, setProfile])
+
+  useEffect(() => {
+    if (authenticatedUserId && savedOrders) setOrders(savedOrders.orders)
+  }, [authenticatedUserId, savedOrders, setOrders])
+
+  useEffect(() => {
+    if (!authenticatedUserId || !profile.phone) return
+    const timer = window.setTimeout(() => {
+      void saveProfile(authenticatedUserId, profile).catch(() => undefined)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [authenticatedUserId, profile])
+
   const area = profile.village || location.area || 'Set your location'
+
+  const sendLoginCode = async (phone: string) => {
+    const { error } = await createSupabaseClient().auth.signInWithOtp({
+      phone: `+91${phone}`,
+      options: { shouldCreateUser: false },
+    })
+    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    setLoginPhone(phone)
+    setPendingProfile(null)
+    setAfterOtp('customer')
+    setStage('otp')
+  }
+
+  const sendSignupCode = async (newProfile: Profile) => {
+    const { error } = await createSupabaseClient().auth.signInWithOtp({
+      phone: `+91${newProfile.phone}`,
+      options: { shouldCreateUser: true, data: { name: newProfile.name } },
+    })
+    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    setPendingProfile(newProfile)
+    setLoginPhone(newProfile.phone)
+    setAfterOtp(newProfile.role)
+    setStage('otp')
+  }
+
+  const verifyCode = async (code: string) => {
+    const supabase = createSupabaseClient()
+    const { data, error } = await supabase.auth.verifyOtp({
+      phone: `+91${loginPhone}`,
+      token: code,
+      type: 'sms',
+    })
+    if (error || !data.user) throw new Error(friendlyAuthError(error?.message ?? '', 'verify'))
+
+    let existingProfile: Profile | null
+    try {
+      existingProfile = await fetchProfile(data.user.id)
+    } catch {
+      throw new Error('Your account was verified, but we could not load your profile. Please try again.')
+    }
+    const verifiedProfile = pendingProfile ?? existingProfile ?? {
+      ...emptyProfile,
+      phone: loginPhone,
+      name: typeof data.user.user_metadata?.name === 'string' ? data.user.user_metadata.name : '',
+      role: afterOtp,
+    }
+    if (pendingProfile || !existingProfile) {
+      try {
+        await saveProfile(data.user.id, verifiedProfile)
+      } catch {
+        throw new Error('Your account was verified, but we could not save your profile. Please try again.')
+      }
+    }
+
+    setAuthenticatedUserId(data.user.id)
+    setAuthenticatedPhone(loginPhone)
+    setProfile(verifiedProfile)
+    setActiveRole(verifiedProfile.role)
+    setPendingProfile(null)
+    setSessionReady(true)
+    enterApp(verifiedProfile.role)
+  }
 
   const enterApp = (role: Role) => {
     setActiveRole(role)
@@ -102,7 +252,7 @@ function LazyHandShell() {
     window.scrollTo({ top: 0 })
   }
 
-  if (stage === 'loading') return <LoadingScreen />
+  if (!sessionReady || stage === 'loading') return <LoadingScreen />
 
   if (stage === 'welcome')
     return (
@@ -119,11 +269,7 @@ function LazyHandShell() {
   if (stage === 'login')
     return (
       <LoginScreen
-        onSendOtp={phone => {
-          setLoginPhone(phone)
-          setAfterOtp(profile.phone === phone ? profile.role : 'customer')
-          setStage('otp')
-        }}
+        onSendOtp={sendLoginCode}
         onGuest={() => {
           setProfile({ ...emptyProfile })
           enterApp('customer')
@@ -139,28 +285,26 @@ function LazyHandShell() {
     return (
       <OtpScreen
         phone={loginPhone}
-        onVerified={() => {
-          if (profile.phone !== loginPhone) setProfile({ ...profile, phone: loginPhone })
-          enterApp(afterOtp)
-        }}
-        onBack={() => setStage(profile.phone && profile.phone === loginPhone ? 'signup' : 'login')}
+        onVerified={verifyCode}
+        onBack={() => setStage(pendingProfile ? 'signup' : 'login')}
       />
     )
   if (stage === 'signup')
     return (
       <SignupScreen
         initial={{ ...profile, role: pendingRole, village: profile.village || (location.status === 'granted' ? location.area : '') }}
-        onCreate={created => {
-          setProfile(created)
-          enterApp(created.role)
-        }}
+        onCreate={sendSignupCode}
         onLogin={() => setStage('login')}
         onBack={() => setStage('location')}
       />
     )
 
   const logout = () => {
+    void createSupabaseClient().auth.signOut()
+    setAuthenticatedUserId(null)
+    setAuthenticatedPhone('')
     setProfile({ ...emptyProfile })
+    setOrders([])
     setOverlay(null)
     setStage('welcome')
   }
@@ -191,14 +335,9 @@ function LazyHandShell() {
         area={area}
         onChangeLocation={() => setStage('location')}
         onOpenStore={id => go({ kind: 'store', shopId: id })}
-        onOpenCategory={id => {
-          setCategory(id)
-          setTab('categories')
-          window.scrollTo({ top: 0 })
-        }}
       />
     )
-  else if (tab === 'categories') body = <CategoriesScreen active={category} onSelect={setCategory} />
+  else if (tab === 'categories') body = <CategoriesScreen />
   else if (tab === 'orders') body = <OrderAgainScreen onTrack={id => go({ kind: 'track', orderId: id })} onReordered={() => go({ kind: 'cart' })} />
   else
     body = (

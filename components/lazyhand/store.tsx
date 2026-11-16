@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import {
   billFor,
   DEFAULT_DELIVERY_DISTANCE_KM,
@@ -29,12 +30,13 @@ type LazyHandState = {
   conflictProductId: string | null
   orders: Order[]
   profile: Profile
+  setOrders: (orders: Order[]) => void
   setProfile: (profile: Profile) => void
   addItem: (productId: string) => void
   removeItem: (productId: string) => void
   setDeliveryDistance: (distanceKm: number) => void
   resolveConflict: (replace: boolean) => void
-  placeOrder: (payment: Payment, address: string) => Order | null
+  placeOrder: (payment: Payment, address: string) => Promise<Order | null>
   reorder: (order: Order) => void
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
   toggleShopOpen: (shopId: string) => void
@@ -49,6 +51,8 @@ const LazyHandContext = createContext<LazyHandState | null>(null)
 export const emptyProfile: Profile = {
   name: '',
   phone: '',
+  whatsappNumber: '',
+  whatsappAlertsEnabled: false,
   village: '',
   landmark: '',
   role: 'customer',
@@ -117,20 +121,41 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   )
 
   const placeOrder = useCallback(
-    (payment: Payment, address: string) => {
+    async (payment: Payment, address: string) => {
       if (!cart.shopId || cartLines.length === 0) return null
-      orderCounter += 1
-      const order: Order = {
-        id: `LH${orderCounter}`,
-        shopId: cart.shopId,
-        lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
-        ...billFor(cartTotal, cart.deliveryDistanceKm),
-        payment,
-        status: 'placed',
-        placedAt: 'Today',
-        customerName: profile.name || 'Guest',
-        address,
+      const { data: { user }, error: authError } = await createClient().auth.getUser()
+      if (authError) throw new Error('We could not verify your session. Please sign in again.')
+      let order: Order
+
+      if (user) {
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shopId: cart.shopId,
+            lines: cartLines.map(({ product, qty }) => ({ productId: product.id, qty })),
+            deliveryDistanceKm: cart.deliveryDistanceKm,
+            address,
+          }),
+        })
+        const result = await response.json().catch(() => null) as { order?: Order; error?: string } | null
+        if (!response.ok || !result?.order) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
+        order = result.order
+      } else {
+        orderCounter += 1
+        order = {
+          id: `LH${orderCounter}`,
+          shopId: cart.shopId,
+          lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
+          ...billFor(cartTotal, cart.deliveryDistanceKm),
+          payment,
+          status: 'placed',
+          placedAt: 'Today',
+          customerName: profile.name || 'Guest',
+          address,
+        }
       }
+
       setOrders(list => [order, ...list])
       setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
       return order
@@ -187,6 +212,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     conflictProductId,
     orders,
     profile,
+    setOrders,
     setProfile,
     addItem,
     removeItem,

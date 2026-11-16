@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 
 export const metadata: Metadata = {
   title: 'LazyHand | Local shops, local delivery',
-  description: 'Browse neighborhood shops, place a demo order, and explore the shopkeeper and delivery partner workflows in LazyHand.',
+  description: 'Browse live, admin-managed neighborhood shop categories and separate restaurant menus in LazyHand.',
   generator: 'v0.app',
   icons: {
     icon: [

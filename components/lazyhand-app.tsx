@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   ActivityIndicator,
   Animated,
@@ -20,6 +21,10 @@ import PartnerDashboard from './partner-dashboard'
 type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider' | 'sellerPreview' | 'riderPreview'
 type Role = 'Customer' | 'Shopkeeper' | 'Delivery partner'
 type IconName = keyof typeof Ionicons.glyphMap
+type SavedSession = { screen: 'home' | 'shop' | 'rider'; role: Role }
+
+const SESSION_STORAGE_KEY = 'lazyhand-device-session'
+const isSessionScreen = (value: unknown): value is SavedSession['screen'] => value === 'home' || value === 'shop' || value === 'rider'
 
 const categories: { name: string; icon: IconName; tint: string; background: string }[] = [
   { name: 'Chips & Namkeen', icon: 'fast-food-outline', tint: '#B85B18', background: '#FFF1C9' },
@@ -155,6 +160,7 @@ function TabBar({ active, onNavigate }: { active: 'home' | 'orders' | 'profile';
 export default function LazyHandApp() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const [role, setRole] = useState<Role>('Customer')
+  const [sessionReady, setSessionReady] = useState(false)
   const [place, setPlace] = useState('')
   const [locationState, setLocationState] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle')
   const [searchQuery, setSearchQuery] = useState('')
@@ -172,6 +178,24 @@ export default function LazyHandApp() {
   const entrance = useRef(new Animated.Value(0)).current
   const locationOrbit = useRef(new Animated.Value(0)).current
   const locationOrbitReverse = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    let cancelled = false
+    AsyncStorage.getItem(SESSION_STORAGE_KEY)
+      .then(value => {
+        if (!value || cancelled) return
+        const saved = JSON.parse(value) as SavedSession
+        if (saved && isSessionScreen(saved.screen) && ['Customer', 'Shopkeeper', 'Delivery partner'].includes(saved.role)) {
+          setRole(saved.role)
+          setScreen(saved.screen)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSessionReady(true)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     entrance.setValue(0)
@@ -193,6 +217,17 @@ export default function LazyHandApp() {
   const enter = (next: Screen) => {
     setNotice('')
     setScreen(next)
+    if (isSessionScreen(next)) {
+      void AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ screen: next, role } satisfies SavedSession)).catch(() => {
+        setNotice('This device could not save your session. You may need to reopen the app manually next time.')
+      })
+    }
+  }
+
+  const signOut = () => {
+    void AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {})
+    setRole('Customer')
+    setScreen('welcome')
   }
 
   const requestLocation = useCallback(async () => {
@@ -241,6 +276,10 @@ export default function LazyHandApp() {
   const contentStyle = {
     opacity: entrance,
     transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+  }
+
+  if (!sessionReady) {
+    return <SafeAreaView style={[styles.safeArea, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}><ActivityIndicator color={palette.forest} /></SafeAreaView>
   }
 
   if (screen === 'welcome') return (
@@ -382,11 +421,12 @@ export default function LazyHandApp() {
       <StatusBar barStyle="dark-content" />
       <Header title="Your profile" />
       <ScrollView contentContainerStyle={styles.profileBody}>
-        <View style={styles.profileHero}><View style={styles.profileAvatar}><Ionicons name="person" size={29} color={palette.forest} /></View><View style={styles.profileCopy}><Text style={styles.profileName}>Welcome to LazyHand</Text><Text style={styles.profileSub}>Sign-in is required to save addresses and orders.</Text></View></View>
+        <View style={styles.profileHero}><View style={styles.profileAvatar}><Ionicons name="person" size={29} color={palette.forest} /></View><View style={styles.profileCopy}><Text style={styles.profileName}>Welcome to LazyHand</Text><Text style={styles.profileSub}>Your session stays on this device until you sign out.</Text></View></View>
         <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={locationState === 'granted' ? place || 'Current location' : 'Location not shared'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Notifications" detail={notificationEnabled ? 'Permission enabled; order alerts need backend setup' : 'Off'} onPress={requestNotifications} /></View>
         <View style={styles.profileSection}><Text style={styles.sectionTitle}>PARTNER WITH LAZYHAND</Text><ProfileRow icon="storefront-outline" title="Register a shop" detail="Admin review required" onPress={() => enter('shop')} /><ProfileRow icon="bicycle-outline" title="Become a delivery partner" detail="Apply for the pilot" onPress={() => enter('rider')} /></View>
-        <View style={styles.noticeCard}><Ionicons name="shield-checkmark-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>LazyHand asks for location and notification permission only when you choose those actions. You can revoke either in Android Settings.</Text></View>
+        <View style={styles.noticeCard}><Ionicons name="shield-checkmark-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>Your session is stored on this device. LazyHand asks for location and notification permission only when you choose those actions.</Text></View>
         {notice ? <Text accessibilityRole="alert" style={styles.alertText}>{notice}</Text> : null}
+        <PrimaryButton title="Sign out" icon="log-out-outline" onPress={signOut} />
       </ScrollView>
       <TabBar active="profile" onNavigate={enter} />
     </SafeAreaView>
