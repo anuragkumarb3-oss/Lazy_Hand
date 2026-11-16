@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "LazyHand",
+    "slug": "lazyhand",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "lazyhand",
+    "android": {
+      "package": "com.lazyhand.customer",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFF1DF"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
