@@ -17,8 +17,9 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import * as Location from 'expo-location'
 import PartnerDashboard from './partner-dashboard'
+import ShoppingListScreen from './lazyhand/shopping-list'
 
-type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider' | 'sellerPreview' | 'riderPreview'
+type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'list' | 'shop' | 'rider' | 'sellerPreview' | 'riderPreview'
 type Role = 'Customer' | 'Shopkeeper' | 'Delivery partner'
 type IconName = keyof typeof Ionicons.glyphMap
 type SavedSession = { screen: 'home' | 'shop' | 'rider'; role: Role }
@@ -166,7 +167,6 @@ export default function LazyHandApp() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [locationMessage, setLocationMessage] = useState('')
-  const [notificationEnabled, setNotificationEnabled] = useState(false)
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [phone, setPhone] = useState('')
@@ -204,8 +204,8 @@ export default function LazyHandApp() {
 
   useEffect(() => {
     if (screen !== 'location') return
-    const clockwise = Animated.loop(Animated.timing(locationOrbit, { toValue: 1, duration: 14000, useNativeDriver: true }))
-    const counterClockwise = Animated.loop(Animated.timing(locationOrbitReverse, { toValue: 1, duration: 9500, useNativeDriver: true }))
+    const clockwise = Animated.loop(Animated.timing(locationOrbit, { toValue: 1, duration: 14000, useNativeDriver: Platform.OS !== 'web' }))
+    const counterClockwise = Animated.loop(Animated.timing(locationOrbitReverse, { toValue: 1, duration: 9500, useNativeDriver: Platform.OS !== 'web' }))
     clockwise.start()
     counterClockwise.start()
     return () => {
@@ -260,18 +260,6 @@ export default function LazyHandApp() {
   useEffect(() => {
     if (screen === 'location') void requestLocation()
   }, [requestLocation, screen])
-
-  const requestNotifications = async () => {
-    try {
-      const enabled = Platform.OS === 'web'
-        ? typeof window !== 'undefined' && 'Notification' in window && await Notification.requestPermission() === 'granted'
-        : await (await import('expo-notifications')).requestPermissionsAsync().then(permission => permission.granted || permission.status === 'granted')
-      setNotificationEnabled(enabled)
-      setNotice(enabled ? 'Permission is enabled on this device. Order alerts still need the backend service.' : 'Notifications are off. You can change this in Android Settings.')
-    } catch {
-      setNotice('Notification permissions are not available here. You can change them in Android Settings.')
-    }
-  }
 
   const contentStyle = {
     opacity: entrance,
@@ -401,6 +389,12 @@ export default function LazyHandApp() {
     return <PartnerDashboard kind={screen === 'sellerPreview' ? 'seller' : 'rider'} onBack={() => enter('role')} />
   }
 
+  if (screen === 'list') return (
+    <Animated.View style={[{ flex: 1 }, contentStyle]}>
+      <ShoppingListScreen onBack={() => enter('home')} />
+    </Animated.View>
+  )
+
   if (screen === 'orders') return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -422,7 +416,7 @@ export default function LazyHandApp() {
       <Header title="Your profile" />
       <ScrollView contentContainerStyle={styles.profileBody}>
         <View style={styles.profileHero}><View style={styles.profileAvatar}><Ionicons name="person" size={29} color={palette.forest} /></View><View style={styles.profileCopy}><Text style={styles.profileName}>Welcome to LazyHand</Text><Text style={styles.profileSub}>Your session stays on this device until you sign out.</Text></View></View>
-        <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={locationState === 'granted' ? place || 'Current location' : 'Location not shared'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Notifications" detail={notificationEnabled ? 'Permission enabled; order alerts need backend setup' : 'Off'} onPress={requestNotifications} /></View>
+        <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={locationState === 'granted' ? place || 'Current location' : 'Location not shared'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Daily list reminder" detail="Schedule a reminder for your essentials" onPress={() => enter('list')} /></View>
         <View style={styles.profileSection}><Text style={styles.sectionTitle}>PARTNER WITH LAZYHAND</Text><ProfileRow icon="storefront-outline" title="Register a shop" detail="Admin review required" onPress={() => enter('shop')} /><ProfileRow icon="bicycle-outline" title="Become a delivery partner" detail="Apply for the pilot" onPress={() => enter('rider')} /></View>
         <View style={styles.noticeCard}><Ionicons name="shield-checkmark-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>Your session is stored on this device. LazyHand asks for location and notification permission only when you choose those actions.</Text></View>
         {notice ? <Text accessibilityRole="alert" style={styles.alertText}>{notice}</Text> : null}
@@ -447,7 +441,10 @@ export default function LazyHandApp() {
                   <Ionicons name="chevron-down" size={15} color={palette.card} />
                 </Pressable>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => enter('profile')} style={styles.homeProfileButton}><Ionicons name="person-outline" size={20} color={palette.forest} /></Pressable>
+              <View style={styles.homeHeaderActions}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open daily shopping list" onPress={() => enter('list')} style={styles.homeProfileButton}><Ionicons name="list-outline" size={20} color={palette.forest} /></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => enter('profile')} style={styles.homeProfileButton}><Ionicons name="person-outline" size={20} color={palette.forest} /></Pressable>
+              </View>
             </View>
             <View style={styles.homeSearchBar}>
               <Ionicons name="search" size={18} color={palette.muted} />
@@ -495,6 +492,7 @@ const styles = StyleSheet.create({
   homeScroll: { paddingBottom: 12 },
   homeOrangeHeader: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: palette.lime },
   homeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  homeHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   homeDeliveryBlock: { flex: 1, minWidth: 0 },
   homeDeliveryLabel: { color: 'rgba(255,255,255,0.82)', fontSize: 9, fontWeight: '900', letterSpacing: 1.3 },
   homeDeliveryButton: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%' },
