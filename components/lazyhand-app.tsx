@@ -1,0 +1,473 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import * as Location from 'expo-location'
+
+type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider'
+type Role = 'Customer' | 'Shopkeeper' | 'Delivery partner'
+type IconName = keyof typeof Ionicons.glyphMap
+
+const palette = {
+  ink: '#17352D',
+  forest: '#155B45',
+  leaf: '#2D795C',
+  lime: '#D8F36A',
+  paper: '#F7F7F0',
+  card: '#FFFFFF',
+  muted: '#75827C',
+  line: '#E5EAE2',
+  saffron: '#F5A341',
+  softGreen: '#EAF2E9',
+  danger: '#A94635',
+}
+
+function BrandMark({ size = 44 }: { size?: number }) {
+  return (
+    <View style={[styles.brandMark, { width: size, height: size, borderRadius: size * 0.34 }]}>
+      <Ionicons name="hand-left" size={size * 0.49} color={palette.forest} />
+    </View>
+  )
+}
+
+function PrimaryButton({
+  title,
+  onPress,
+  icon,
+  disabled = false,
+  loading = false,
+}: {
+  title: string
+  onPress: () => void
+  icon?: IconName
+  disabled?: boolean
+  loading?: boolean
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, busy: loading }}
+      disabled={disabled || loading}
+      onPress={onPress}
+      style={({ pressed }) => [styles.primaryButton, (pressed || disabled) && styles.buttonDimmed]}
+    >
+      {loading ? <ActivityIndicator color={palette.ink} /> : icon ? <Ionicons name={icon} size={19} color={palette.ink} /> : null}
+      <Text style={styles.primaryButtonText}>{title}</Text>
+    </Pressable>
+  )
+}
+
+function QuietButton({ title, onPress, icon }: { title: string; onPress: () => void; icon: IconName }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.quietButton, pressed && styles.buttonDimmed]}>
+      <Ionicons name={icon} size={18} color={palette.forest} />
+      <Text style={styles.quietButtonText}>{title}</Text>
+    </Pressable>
+  )
+}
+
+function Header({ title, onBack, right }: { title: string; onBack?: () => void; right?: ReactNode }) {
+  return (
+    <View style={styles.header}>
+      {onBack ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={onBack} style={styles.iconButton}>
+          <Ionicons name="arrow-back" size={20} color={palette.ink} />
+        </Pressable>
+      ) : <BrandMark />}
+      <Text numberOfLines={1} style={styles.headerTitle}>{title}</Text>
+      {right || <View style={styles.headerSpacer} />}
+    </View>
+  )
+}
+
+function Field({ label, value, onChangeText, placeholder, keyboardType }: {
+  label: string
+  value: string
+  onChangeText: (value: string) => void
+  placeholder: string
+  keyboardType?: 'default' | 'phone-pad' | 'email-address' | 'numeric'
+}) {
+  return (
+    <View style={styles.fieldWrap}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#9AA59F"
+        keyboardType={keyboardType}
+        style={styles.field}
+      />
+    </View>
+  )
+}
+
+function TabBar({ active, onNavigate }: { active: 'home' | 'orders' | 'profile'; onNavigate: (screen: Screen) => void }) {
+  const tabs: { label: string; screen: 'home' | 'orders' | 'profile'; icon: IconName }[] = [
+    { label: 'Discover', screen: 'home', icon: 'compass-outline' },
+    { label: 'Orders', screen: 'orders', icon: 'receipt-outline' },
+    { label: 'Profile', screen: 'profile', icon: 'person-circle-outline' },
+  ]
+  return (
+    <View accessibilityRole="tablist" style={styles.tabBar}>
+      {tabs.map(tab => {
+        const selected = active === tab.screen
+        return (
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            key={tab.screen}
+            onPress={() => onNavigate(tab.screen)}
+            style={styles.tabItem}
+          >
+            <Ionicons name={tab.icon} size={21} color={selected ? palette.forest : palette.muted} />
+            <Text style={[styles.tabLabel, selected && styles.tabLabelActive]}>{tab.label}</Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+export default function LazyHandApp() {
+  const [screen, setScreen] = useState<Screen>('welcome')
+  const [role, setRole] = useState<Role>('Customer')
+  const [place, setPlace] = useState('')
+  const [postalCode, setPostalCode] = useState('')
+  const [locationState, setLocationState] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle')
+  const [locationMessage, setLocationMessage] = useState('')
+  const [notificationEnabled, setNotificationEnabled] = useState(false)
+  const [shopName, setShopName] = useState('')
+  const [ownerName, setOwnerName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [shopAddress, setShopAddress] = useState('')
+  const [vehicle, setVehicle] = useState('')
+  const [riderArea, setRiderArea] = useState('')
+  const [notice, setNotice] = useState('')
+  const entrance = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    entrance.setValue(0)
+    Animated.spring(entrance, { toValue: 1, useNativeDriver: false, speed: 15, bounciness: 3 }).start()
+  }, [entrance, screen])
+
+  const enter = (next: Screen) => {
+    setNotice('')
+    setScreen(next)
+  }
+
+  const requestLocation = async () => {
+    setLocationState('loading')
+    setLocationMessage('')
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync()
+      if (permission.status !== 'granted') {
+        setLocationState('denied')
+        setLocationMessage('Location permission is off. You can enable it in Android Settings or enter your PIN code below.')
+        return
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      const address = (await Location.reverseGeocodeAsync(position.coords))[0]
+      const detectedPin = address?.postalCode?.replace(/\s/g, '') || ''
+      const detectedArea = [address?.district, address?.city, address?.region].filter(Boolean).join(', ')
+      setPostalCode(detectedPin)
+      setPlace(detectedArea)
+      setLocationState('granted')
+      setLocationMessage(detectedPin === '845420'
+        ? 'PIN code 845420 detected. Exact 6 km availability still needs the shop hub location.'
+        : detectedPin
+          ? `PIN code ${detectedPin} detected. LazyHand is piloting around 845420; we cannot confirm coverage until the hub is set.`
+          : 'Location detected. We could not read a PIN code here, so coverage is not confirmed.')
+    } catch {
+      setLocationState('denied')
+      setLocationMessage('We could not read your location. Enter your PIN code to continue.')
+    }
+  }
+
+  const requestNotifications = async () => {
+    try {
+      const enabled = Platform.OS === 'web'
+        ? typeof window !== 'undefined' && 'Notification' in window && await Notification.requestPermission() === 'granted'
+        : await (await import('expo-notifications')).requestPermissionsAsync().then(permission => permission.granted || permission.status === 'granted')
+      setNotificationEnabled(enabled)
+      setNotice(enabled ? 'Permission is enabled on this device. Order alerts still need the backend service.' : 'Notifications are off. You can change this in Android Settings.')
+    } catch {
+      setNotice('Notification permissions are not available here. You can change them in Android Settings.')
+    }
+  }
+
+  const contentStyle = {
+    opacity: entrance,
+    transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+  }
+
+  if (screen === 'welcome') return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <Animated.View style={[styles.welcome, contentStyle]}>
+        <View style={styles.welcomeTop}>
+          <View style={styles.welcomeBrand}><BrandMark size={52} /><Text style={styles.wordmark}>LazyHand</Text></View>
+          <View style={styles.welcomeGraphic}>
+            <View style={styles.graphicOrbit} />
+            <View style={styles.graphicCenter}><Ionicons name="basket" size={43} color={palette.forest} /></View>
+            <View style={styles.graphicBadge}><Ionicons name="flash" size={18} color={palette.ink} /></View>
+            <View style={styles.graphicDot} />
+          </View>
+          <View style={styles.welcomeCopy}>
+            <Text style={styles.eyebrow}>YOUR LOCAL SHOPS, A LITTLE CLOSER</Text>
+            <Text style={styles.welcomeTitle}>Good things{ '\n' }are around the{ '\n' }corner.</Text>
+            <Text style={styles.welcomeDescription}>Discover independent shops in the LazyHand pilot area.</Text>
+          </View>
+        </View>
+        <View style={styles.welcomeActions}>
+          <PrimaryButton title="Set my location" icon="navigate" onPress={() => enter('location')} />
+          <Text style={styles.privacyNote}>Your location is only requested after you choose to share it.</Text>
+        </View>
+      </Animated.View>
+    </SafeAreaView>
+  )
+
+  if (screen === 'location') return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <Header title="Your neighborhood" onBack={() => enter('welcome')} />
+      <Animated.ScrollView style={[styles.screenBody, contentStyle]} contentContainerStyle={styles.locationBody} keyboardShouldPersistTaps="handled">
+        <View style={styles.locationIllustration}><Ionicons name="location" size={38} color={palette.forest} /><View style={styles.locationPulse} /></View>
+        <Text style={styles.pageTitle}>Start with{ '\n' }your location.</Text>
+        <Text style={styles.bodyText}>We use your device location only after permission to check nearby availability. The pilot PIN is 845420.</Text>
+        <PrimaryButton title="Detect my location" icon="locate" onPress={requestLocation} loading={locationState === 'loading'} />
+        <View style={styles.permissionRow}><Ionicons name="shield-checkmark-outline" size={17} color={palette.leaf} /><Text style={styles.permissionText}>Precise location is used only while checking service coverage.</Text></View>
+        <Field label="PIN code" value={postalCode} onChangeText={setPostalCode} placeholder="Enter your 6-digit PIN code" keyboardType="numeric" />
+        <Field label="Area or landmark (optional)" value={place} onChangeText={setPlace} placeholder="Apartment, street or landmark" />
+        {locationMessage ? <View style={styles.noticeCard}><Ionicons name="information-circle-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>{locationMessage}</Text></View> : null}
+        <View style={styles.noticeCard}><Ionicons name="radio-outline" size={18} color={palette.saffron} /><Text style={styles.noticeText}>A PIN code covers a wider area than 6 km. We need the exact shop hub address before we can accurately confirm delivery range.</Text></View>
+        <QuietButton title={notificationEnabled ? 'Permission enabled on device' : 'Allow notifications'} icon={notificationEnabled ? 'notifications' : 'notifications-outline'} onPress={requestNotifications} />
+        <View style={styles.flexSpacer} />
+        <PrimaryButton title="Choose how to use LazyHand" icon="arrow-forward" onPress={() => enter('role')} />
+      </Animated.ScrollView>
+    </SafeAreaView>
+  )
+
+  if (screen === 'role') return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <Header title="Choose your path" onBack={() => enter('location')} />
+      <Animated.View style={[styles.screenBody, contentStyle]}>
+        <Text style={styles.eyebrow}>MADE FOR YOUR NEIGHBORHOOD</Text>
+        <Text style={styles.pageTitle}>How will you{ '\n' }use LazyHand?</Text>
+        <Text style={styles.bodyText}>Pick a starting role. Shop and rider applications require separate review before going live.</Text>
+        {([
+          { name: 'Customer' as const, icon: 'bag-handle-outline' as const, desc: 'Explore nearby shops and place local orders.' },
+          { name: 'Shopkeeper' as const, icon: 'storefront-outline' as const, desc: 'Register your shop and prepare to receive orders.' },
+          { name: 'Delivery partner' as const, icon: 'bicycle-outline' as const, desc: 'Apply to deliver neighborhood orders.' },
+        ]).map(item => {
+          const selected = role === item.name
+          return (
+            <Pressable accessibilityRole="radio" accessibilityState={{ checked: selected }} key={item.name} onPress={() => setRole(item.name)} style={[styles.roleCard, selected && styles.roleCardSelected]}>
+              <View style={[styles.roleIcon, selected && styles.roleIconSelected]}><Ionicons name={item.icon} size={22} color={selected ? palette.ink : palette.forest} /></View>
+              <View style={styles.roleCopy}><Text style={styles.roleName}>{item.name}</Text><Text style={styles.roleDescription}>{item.desc}</Text></View>
+              <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={21} color={selected ? palette.forest : '#B9C3BC'} />
+            </Pressable>
+          )
+        })}
+        <View style={styles.flexSpacer} />
+        <PrimaryButton title={role === 'Customer' ? 'Explore LazyHand' : role === 'Shopkeeper' ? 'Register a shop' : 'Apply as a rider'} icon="arrow-forward" onPress={() => enter(role === 'Customer' ? 'home' : role === 'Shopkeeper' ? 'shop' : 'rider')} />
+      </Animated.View>
+    </SafeAreaView>
+  )
+
+  if (screen === 'shop' || screen === 'rider') {
+    const isShop = screen === 'shop'
+    const validPhone = /^[6-9]\d{9}$/.test(phone.replace(/\D/g, ''))
+    const valid = isShop ? Boolean(shopName.trim() && ownerName.trim() && validPhone && shopAddress.trim()) : Boolean(ownerName.trim() && validPhone && vehicle.trim() && riderArea.trim())
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <Header title={isShop ? 'Shop registration' : 'Rider application'} onBack={() => enter('role')} />
+        <ScrollView contentContainerStyle={styles.formBody} keyboardShouldPersistTaps="handled">
+          <Text style={styles.eyebrow}>{isShop ? 'LOCAL BUSINESS PARTNER' : 'DELIVERY PARTNER'}</Text>
+          <Text style={styles.pageTitle}>{isShop ? 'Bring your shop online.' : 'Deliver good things nearby.'}</Text>
+          <Text style={styles.bodyText}>{isShop ? 'Share the basics so your shop can be reviewed for the 845420 pilot.' : 'Tell us about yourself and your ride. Rider applications are reviewed before activation.'}</Text>
+          {isShop ? <Field label="Shop name" value={shopName} onChangeText={setShopName} placeholder="Your store name" /> : null}
+          <Field label="Your full name" value={ownerName} onChangeText={setOwnerName} placeholder="Name as on your ID" />
+          <Field label="Phone number" value={phone} onChangeText={setPhone} placeholder="10-digit mobile number" keyboardType="phone-pad" />
+          {isShop ? <Field label="Shop address" value={shopAddress} onChangeText={setShopAddress} placeholder="Street, landmark, PIN code" /> : <>
+            <Field label="Vehicle type" value={vehicle} onChangeText={setVehicle} placeholder="Bicycle, scooter or other" />
+            <Field label="Preferred delivery area" value={riderArea} onChangeText={setRiderArea} placeholder="Area or PIN code you can serve" />
+          </>}
+          <View style={styles.noticeCard}><Ionicons name="lock-closed-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>Registration and document storage are not connected yet. These details stay on this screen and are not submitted or saved.</Text></View>
+          <PrimaryButton title={isShop ? 'Submit shop for review' : 'Submit rider application'} icon="paper-plane-outline" disabled={!valid} onPress={() => setNotice('Submission is unavailable until the account and backend service are connected. No application was sent.')} />
+          {notice ? <Text accessibilityRole="alert" style={styles.alertText}>{notice}</Text> : null}
+          <QuietButton title="Back to role selection" icon="arrow-back" onPress={() => enter('role')} />
+        </ScrollView>
+      </SafeAreaView>
+    )
+  }
+
+  if (screen === 'orders') return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <Header title="Your orders" />
+      <View style={styles.mainBody}>
+        <View style={styles.emptyIcon}><Ionicons name="receipt-outline" size={27} color={palette.forest} /></View>
+        <Text style={styles.pageTitle}>Your next order{ '\n' }starts nearby.</Text>
+        <Text style={styles.bodyText}>There are no orders on this account yet. We will show live shop acceptance and rider updates here once ordering is connected.</Text>
+        <View style={styles.noticeCard}><Ionicons name="information-circle-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>No sample orders are shown. Order history needs account sign-in and the live backend.</Text></View>
+        <PrimaryButton title="Explore shops" icon="compass-outline" onPress={() => enter('home')} />
+      </View>
+      <TabBar active="orders" onNavigate={enter} />
+    </SafeAreaView>
+  )
+
+  if (screen === 'profile') return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <Header title="Your profile" />
+      <ScrollView contentContainerStyle={styles.profileBody}>
+        <View style={styles.profileHero}><View style={styles.profileAvatar}><Ionicons name="person" size={29} color={palette.forest} /></View><View style={styles.profileCopy}><Text style={styles.profileName}>Welcome to LazyHand</Text><Text style={styles.profileSub}>Sign-in is required to save addresses and orders.</Text></View></View>
+        <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={postalCode ? `${postalCode}${place ? ` · ${place}` : ''}` : 'Add your location'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Notifications" detail={notificationEnabled ? 'Permission enabled; order alerts need backend setup' : 'Off'} onPress={requestNotifications} /></View>
+        <View style={styles.profileSection}><Text style={styles.sectionTitle}>PARTNER WITH LAZYHAND</Text><ProfileRow icon="storefront-outline" title="Register a shop" detail="Admin review required" onPress={() => enter('shop')} /><ProfileRow icon="bicycle-outline" title="Become a delivery partner" detail="Apply for the pilot" onPress={() => enter('rider')} /></View>
+        <View style={styles.noticeCard}><Ionicons name="shield-checkmark-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>LazyHand asks for location and notification permission only when you choose those actions. You can revoke either in Android Settings.</Text></View>
+        {notice ? <Text accessibilityRole="alert" style={styles.alertText}>{notice}</Text> : null}
+      </ScrollView>
+      <TabBar active="profile" onNavigate={enter} />
+    </SafeAreaView>
+  )
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.mainShell}>
+        <Header title="Discover" right={<Pressable accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => enter('profile')} style={styles.iconButton}><Ionicons name="person-outline" size={20} color={palette.ink} /></Pressable>} />
+        <ScrollView contentContainerStyle={styles.homeContent}>
+          <View style={styles.locationPill}><Ionicons name="location" size={16} color={palette.forest} /><View style={styles.locationPillCopy}><Text style={styles.locationPillLabel}>YOUR AREA</Text><Text style={styles.locationPillValue} numberOfLines={1}>{postalCode || 'Set location to check availability'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Change location" onPress={() => enter('location')}><Ionicons name="chevron-forward" size={18} color={palette.forest} /></Pressable></View>
+          <View style={styles.homeHero}><View style={styles.heroDecor}><View style={styles.heroCircle}><Ionicons name="storefront" size={34} color={palette.ink} /></View><View style={styles.heroSpark}><Ionicons name="sparkles" size={16} color={palette.ink} /></View></View><Text style={styles.heroEyebrow}>SMALL SHOPS. BIG HEART.</Text><Text style={styles.heroTitle}>Your neighborhood,{ '\n' }on your terms.</Text><Text style={styles.heroBody}>Discover local shops when the LazyHand pilot opens in your area.</Text><View style={styles.hubBadge}><View style={styles.onlineDot} /><Text style={styles.hubBadgeText}>PILOT PIN 845420 · COVERAGE CHECK REQUIRED</Text></View></View>
+          <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Around your corner</Text><Text style={styles.sectionSub}>Independent shops, when available</Text></View><Ionicons name="arrow-forward" size={18} color={palette.forest} /></View>
+          <View style={styles.emptyCard}><View style={styles.emptyIcon}><Ionicons name="storefront-outline" size={28} color={palette.forest} /></View><Text style={styles.emptyTitle}>No shops listed yet</Text><Text style={styles.emptyBody}>We removed the sample shops and products. Registered shops will appear here after approval and catalog setup.</Text><QuietButton title="Register a shop" icon="add-circle-outline" onPress={() => enter('shop')} /></View>
+          <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Your way to help</Text><Text style={styles.sectionSub}>Join the neighborhood network</Text></View></View>
+          <Pressable accessibilityRole="button" onPress={() => enter('rider')} style={({ pressed }) => [styles.partnerCard, pressed && styles.buttonDimmed]}><View style={styles.partnerIcon}><Ionicons name="bicycle-outline" size={23} color={palette.forest} /></View><View style={styles.partnerCopy}><Text style={styles.partnerTitle}>Deliver close to home</Text><Text style={styles.partnerSub}>Apply to become a delivery partner</Text></View><Ionicons name="chevron-forward" size={18} color={palette.forest} /></Pressable>
+        </ScrollView>
+        <TabBar active="home" onNavigate={enter} />
+      </View>
+    </SafeAreaView>
+  )
+}
+
+function ProfileRow({ icon, title, detail, onPress }: { icon: IconName; title: string; detail: string; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.profileRow, pressed && styles.buttonDimmed]}>
+      <View style={styles.profileRowIcon}><Ionicons name={icon} size={19} color={palette.forest} /></View>
+      <View style={styles.profileRowCopy}><Text style={styles.profileRowTitle}>{title}</Text><Text style={styles.profileRowDetail}>{detail}</Text></View>
+      <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+    </Pressable>
+  )
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: palette.paper },
+  mainShell: { flex: 1, backgroundColor: palette.paper },
+  welcome: { flex: 1, paddingHorizontal: 25, paddingTop: 14, paddingBottom: 14, justifyContent: 'space-between' },
+  welcomeTop: { flex: 1, justifyContent: 'center' },
+  welcomeBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center' },
+  wordmark: { color: palette.ink, fontSize: 21, fontWeight: '900', letterSpacing: -0.7 },
+  welcomeGraphic: { height: 124, alignItems: 'center', justifyContent: 'center', marginTop: 9, marginBottom: 11 },
+  graphicOrbit: { position: 'absolute', height: 116, width: 116, borderRadius: 58, backgroundColor: palette.softGreen, borderWidth: 1, borderColor: '#DFE9DE' },
+  graphicCenter: { width: 78, height: 78, borderRadius: 27, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: palette.ink, shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
+  graphicBadge: { position: 'absolute', right: 55, bottom: 22, width: 39, height: 39, borderRadius: 14, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center' },
+  graphicDot: { position: 'absolute', left: 63, top: 35, width: 12, height: 12, borderRadius: 6, backgroundColor: palette.saffron },
+  welcomeCopy: { marginTop: 3 },
+  eyebrow: { color: palette.leaf, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
+  welcomeTitle: { color: palette.ink, fontSize: 32, lineHeight: 35, fontWeight: '900', letterSpacing: -1.1 },
+  welcomeDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 290 },
+  welcomeActions: { gap: 12, paddingTop: 20 },
+  privacyNote: { color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 12 },
+  primaryButton: { minHeight: 54, paddingHorizontal: 18, borderRadius: 17, backgroundColor: palette.lime, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  primaryButtonText: { color: palette.ink, fontSize: 14, fontWeight: '900', letterSpacing: 0.1 },
+  buttonDimmed: { opacity: 0.65, transform: [{ scale: 0.985 }] },
+  quietButton: { minHeight: 46, paddingHorizontal: 13, borderRadius: 14, backgroundColor: palette.softGreen, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  quietButtonText: { color: palette.forest, fontSize: 12, fontWeight: '800' },
+  header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 19, paddingVertical: 8 },
+  headerTitle: { flex: 1, color: palette.ink, fontSize: 16, fontWeight: '900' },
+  headerSpacer: { width: 44 },
+  iconButton: { width: 42, height: 42, borderRadius: 15, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  screenBody: { flex: 1, paddingHorizontal: 22, paddingTop: 12 },
+  locationBody: { paddingBottom: 20 },
+  pageTitle: { color: palette.ink, fontSize: 29, lineHeight: 33, fontWeight: '900', letterSpacing: -0.9, marginTop: 4 },
+  bodyText: { color: palette.muted, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 16 },
+  locationIllustration: { width: 78, height: 78, borderRadius: 28, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  locationPulse: { position: 'absolute', right: 8, top: 8, width: 12, height: 12, borderRadius: 6, backgroundColor: palette.saffron, borderWidth: 2, borderColor: palette.paper },
+  permissionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, marginBottom: 8 },
+  permissionText: { flex: 1, color: palette.muted, fontSize: 11, lineHeight: 16 },
+  fieldWrap: { marginTop: 11 },
+  fieldLabel: { color: palette.ink, fontSize: 11, fontWeight: '800', marginBottom: 6 },
+  field: { minHeight: 48, borderRadius: 14, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 13, fontSize: 13, color: palette.ink },
+  noticeCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 11, borderRadius: 13, backgroundColor: palette.softGreen, marginTop: 12 },
+  noticeText: { flex: 1, color: palette.ink, fontSize: 11, lineHeight: 16 },
+  flexSpacer: { flex: 1, minHeight: 16 },
+  roleCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, marginTop: 9, borderRadius: 18, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line },
+  roleCardSelected: { backgroundColor: palette.softGreen, borderColor: palette.leaf },
+  roleIcon: { width: 43, height: 43, borderRadius: 14, backgroundColor: '#F3F6EF', alignItems: 'center', justifyContent: 'center' },
+  roleIconSelected: { backgroundColor: palette.lime },
+  roleCopy: { flex: 1 },
+  roleName: { color: palette.ink, fontSize: 13, fontWeight: '900' },
+  roleDescription: { color: palette.muted, fontSize: 10, lineHeight: 14, marginTop: 3 },
+  formBody: { paddingHorizontal: 21, paddingTop: 16, paddingBottom: 25 },
+  alertText: { color: palette.danger, fontSize: 12, lineHeight: 17, marginTop: 11, textAlign: 'center' },
+  mainBody: { flex: 1, alignItems: 'flex-start', justifyContent: 'center', paddingHorizontal: 23, paddingBottom: 25 },
+  emptyIcon: { width: 56, height: 56, borderRadius: 20, backgroundColor: palette.softGreen, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  tabBar: { minHeight: 66, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: palette.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 4 },
+  tabItem: { flex: 1, minHeight: 58, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  tabLabel: { color: palette.muted, fontSize: 10, fontWeight: '700' },
+  tabLabelActive: { color: palette.forest, fontWeight: '900' },
+  homeContent: { paddingHorizontal: 18, paddingBottom: 18 },
+  locationPill: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line, borderRadius: 16, paddingHorizontal: 12 },
+  locationPillCopy: { flex: 1 },
+  locationPillLabel: { color: palette.muted, fontSize: 8, fontWeight: '900', letterSpacing: 1.2 },
+  locationPillValue: { color: palette.ink, fontSize: 12, fontWeight: '800', marginTop: 2 },
+  homeHero: { marginTop: 14, padding: 17, minHeight: 218, borderRadius: 24, backgroundColor: palette.forest, overflow: 'hidden' },
+  heroDecor: { position: 'absolute', top: -24, right: -16, width: 132, height: 132, borderRadius: 66, backgroundColor: '#267457', alignItems: 'center', justifyContent: 'center' },
+  heroCircle: { width: 66, height: 66, borderRadius: 23, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-8deg' }] },
+  heroSpark: { position: 'absolute', left: 26, bottom: 19, width: 29, height: 29, borderRadius: 11, backgroundColor: palette.saffron, alignItems: 'center', justifyContent: 'center' },
+  heroEyebrow: { color: '#D8EBC4', fontSize: 8, fontWeight: '900', letterSpacing: 1.5, marginTop: 6 },
+  heroTitle: { color: '#FFFFFF', fontSize: 21, lineHeight: 25, fontWeight: '900', letterSpacing: -0.6, marginTop: 7 },
+  heroBody: { color: '#E1EEE7', fontSize: 11, lineHeight: 16, maxWidth: 215, marginTop: 5 },
+  hubBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 7, marginTop: 12 },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.lime },
+  hubBadgeText: { color: '#FFFFFF', fontSize: 7, fontWeight: '900', letterSpacing: 0.45 },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 19, marginBottom: 10 },
+  sectionTitle: { color: palette.ink, fontSize: 15, fontWeight: '900' },
+  sectionSub: { color: palette.muted, fontSize: 10, marginTop: 3 },
+  emptyCard: { alignItems: 'center', padding: 16, borderRadius: 20, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line },
+  emptyTitle: { color: palette.ink, fontSize: 14, fontWeight: '900', textAlign: 'center' },
+  emptyBody: { color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 6, marginBottom: 12 },
+  partnerCard: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: palette.card, borderWidth: 1, borderColor: palette.line, borderRadius: 18, padding: 12 },
+  partnerIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: palette.softGreen, alignItems: 'center', justifyContent: 'center' },
+  partnerCopy: { flex: 1 },
+  partnerTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
+  partnerSub: { color: palette.muted, fontSize: 10, marginTop: 3 },
+  profileBody: { paddingHorizontal: 19, paddingTop: 13, paddingBottom: 18 },
+  profileHero: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 15, borderRadius: 20, backgroundColor: palette.softGreen },
+  profileAvatar: { width: 52, height: 52, borderRadius: 18, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center' },
+  profileCopy: { flex: 1 },
+  profileName: { color: palette.ink, fontSize: 14, fontWeight: '900' },
+  profileSub: { color: palette.muted, fontSize: 10, lineHeight: 14, marginTop: 4 },
+  profileSection: { marginTop: 19 },
+  profileRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, borderBottomWidth: 1, borderBottomColor: palette.line, paddingVertical: 8 },
+  profileRowIcon: { width: 37, height: 37, borderRadius: 13, backgroundColor: palette.softGreen, alignItems: 'center', justifyContent: 'center' },
+  profileRowCopy: { flex: 1 },
+  profileRowTitle: { color: palette.ink, fontSize: 12, fontWeight: '800' },
+  profileRowDetail: { color: palette.muted, fontSize: 10, marginTop: 3 },
+})

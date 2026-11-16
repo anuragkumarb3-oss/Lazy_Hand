@@ -6,6 +6,15 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "lazyhand",
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow LazyHand to check whether nearby shops can deliver to you."
+        }
+      ],
+      "expo-notifications"
+    ],
     "android": {
       "package": "com.lazyhand.customer",
       "adaptiveIcon": {
