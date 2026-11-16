@@ -15,11 +15,12 @@ import {
   Receipt,
   RefreshCw,
   ShoppingBag,
+  Sparkles,
   Store,
   Truck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { billFor, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, deliverySlabFor, rupee, type Order, type OrderStatus, type Role } from './data'
+import { billFor, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, deliverySlabFor, FREE_DELIVERY_THRESHOLD, rupee, type Order, type OrderStatus, type Role } from './data'
 import { useLazyHand } from './store'
 import { BackButton, LoadingScreen, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
@@ -29,6 +30,26 @@ function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
       <BackButton onClick={onBack} />
       <h1 className="text-base font-bold">{title}</h1>
     </header>
+  )
+}
+
+function DeliveryGoal({ itemTotal }: { itemTotal: number }) {
+  const remaining = Math.max(0, FREE_DELIVERY_THRESHOLD - itemTotal)
+  const progress = Math.min(100, (itemTotal / FREE_DELIVERY_THRESHOLD) * 100)
+
+  return (
+    <section className="rounded-2xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5" aria-label="Free delivery progress">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-[#166534]" role="status">
+          {remaining > 0 ? `Add ${rupee(remaining)} more for free delivery` : 'You unlocked free delivery'}
+        </p>
+        <Truck className="size-4 shrink-0 text-[#15803D]" aria-hidden="true" />
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#DCFCE7]" role="progressbar" aria-label="Free delivery progress" aria-valuemin={0} aria-valuemax={FREE_DELIVERY_THRESHOLD} aria-valuenow={Math.min(itemTotal, FREE_DELIVERY_THRESHOLD)}>
+        <div className="h-full rounded-full bg-[#16A34A] transition-[width]" style={{ width: `${progress}%` }} />
+      </div>
+      <p className="mt-1.5 text-[10px] text-[#166534]">Free delivery on orders of {rupee(FREE_DELIVERY_THRESHOLD)} or more</p>
+    </section>
   )
 }
 
@@ -42,12 +63,28 @@ function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { it
       </div>
       <div className="flex justify-between">
         <dt className="text-muted-ink">Delivery · {deliverySlabFor(bill.deliveryDistanceKm).label}</dt>
-        <dd>{rupee(bill.deliveryFee)}</dd>
+        <dd>{bill.deliveryDiscount > 0 ? <span className="line-through text-muted-ink">{rupee(bill.deliveryFeeBeforeDiscount)}</span> : rupee(bill.deliveryFee)}</dd>
       </div>
+      {bill.deliveryDiscount > 0 && (
+        <div className="flex justify-between text-[#15803D]">
+          <dt>Free delivery unlocked</dt>
+          <dd className="font-semibold">−{rupee(bill.deliveryDiscount)}</dd>
+        </div>
+      )}
       <div className="flex justify-between">
         <dt className="text-muted-ink">Platform fee</dt>
-        <dd className="font-semibold">{rupee(bill.platformFee)}</dd>
+        <dd className="font-semibold">
+          {bill.platformDiscount > 0 ? (
+            <><span className="mr-2 font-normal text-muted-ink line-through">{rupee(bill.platformFeeBeforeDiscount)}</span>{' '}<span className="text-[#15803D]">Free</span></>
+          ) : rupee(bill.platformFee)}
+        </dd>
       </div>
+      {bill.platformDiscount > 0 && (
+        <div className="flex justify-between text-[#15803D]">
+          <dt>Platform fee discount</dt>
+          <dd className="font-semibold">−{rupee(bill.platformDiscount)}</dd>
+        </div>
+      )}
       <div className="mt-1 flex justify-between border-t border-dashed border-line pt-3 text-base font-bold">
         <dt>To pay</dt>
         <dd>{rupee(bill.total)}</dd>
@@ -57,7 +94,7 @@ function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { it
 }
 
 export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => void; onCheckout: () => void; onBrowse: () => void }) {
-  const { cartLines, cartTotal, cart, shopById, addItem, removeItem, setDeliveryDistance } = useLazyHand()
+  const { cartLines, cartTotal, cart, shopById, products, addItem, removeItem, setDeliveryDistance } = useLazyHand()
   if (!cartLines.length || !cart.shopId) {
     return (
       <div className="flex min-h-svh flex-col">
@@ -83,6 +120,8 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
           <p>Fair delivery pricing · <strong className="text-brand-deep">distance-based fees, no seller commission</strong></p>
         </div>
 
+        <DeliveryGoal itemTotal={cartTotal} />
+
         <section className="rounded-2xl border border-line bg-white px-3.5" aria-label="Cart items">
           <p className="flex items-center gap-2 border-b border-line py-3 text-xs font-semibold text-muted-ink">
             <Store className="size-3.5" aria-hidden="true" /> {shopById[cart.shopId].name}
@@ -103,6 +142,46 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
             ))}
           </ul>
         </section>
+
+        {(() => {
+          const basketCategories = new Set(cartLines.map(({ product }) => product.category))
+          const complementaryCategories = new Set(
+            cartLines.flatMap(({ product }) => {
+              if (product.category === 'snacks') return ['drinks']
+              if (product.category === 'drinks') return ['snacks']
+              if (product.category === 'dairy') return ['bakery', 'eggs']
+              if (product.category === 'bakery') return ['dairy']
+              if (product.category === 'staples') return ['veg', 'dairy']
+              if (product.category === 'veg') return ['staples']
+              if (product.category === 'instant') return ['drinks', 'snacks']
+              return ['dairy', 'bakery']
+            }),
+          )
+          const suggestions = products
+            .filter(product => product.shopId === cart.shopId && product.inStock && !cart.items[product.id])
+            .sort((a, b) => Number(complementaryCategories.has(b.category)) - Number(complementaryCategories.has(a.category)) || Number(basketCategories.has(b.category)) - Number(basketCategories.has(a.category)))
+            .slice(0, 2)
+
+          return suggestions.length ? (
+            <section className="rounded-2xl border border-line bg-white px-3.5" aria-labelledby="suggestions-heading">
+              <h2 id="suggestions-heading" className="flex items-center gap-2 border-b border-line py-3 text-sm font-bold">
+                <Sparkles className="size-4 text-brand-deep" aria-hidden="true" /> Goes well with your picks
+              </h2>
+              <ul>
+                {suggestions.map(product => (
+                  <li key={product.id} className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
+                    <ProductTile category={product.category} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{product.name}</p>
+                      <p className="text-xs text-muted-ink">{product.unit} · {rupee(product.price)}</p>
+                    </div>
+                    <QtyControl qty={0} onAdd={() => addItem(product.id)} onRemove={() => removeItem(product.id)} label={product.name} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null
+        })()}
 
         <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="distance-heading">
           <label htmlFor="delivery-distance" className="text-xs font-semibold">Estimated shop-to-door distance</label>
@@ -129,7 +208,7 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
 }
 
 export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
-  const { cartTotal, cartCount, cart, shopById, profile, placeOrder } = useLazyHand()
+  const { cartTotal, cartCount, cartLines, cart, shopById, profile, placeOrder } = useLazyHand()
   const [error, setError] = useState('')
   const [isPlacing, setIsPlacing] = useState(false)
   const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
@@ -183,13 +262,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           )}
         </section>
 
+        <DeliveryGoal itemTotal={cartTotal} />
+
         <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="pay-heading">
           <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
           <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
             <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
             <div>
               <p className="text-sm font-semibold">Cash on delivery</p>
-              <p className="text-xs text-muted-ink">Pay the rider in cash. Digital payments are not connected in this preview.</p>
+              <p className="text-xs text-muted-ink">Pay the rider in cash. Paytm and other digital payment options aren&apos;t connected in this preview.</p>
             </div>
             <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" />
           </div>
@@ -199,6 +280,14 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           <h2 className="mb-3 text-sm font-bold">
             Order summary <span className="font-normal text-muted-ink">({cartCount} items)</span>
           </h2>
+          <ul className="mb-3 flex flex-col gap-2 border-b border-line pb-3 text-xs">
+            {cartLines.map(({ product, qty }) => (
+              <li key={product.id} className="flex justify-between gap-3">
+                <span className="min-w-0 truncate text-muted-ink">{qty} × {product.name}</span>
+                <span className="shrink-0">{rupee(product.price * qty)}</span>
+              </li>
+            ))}
+          </ul>
           <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} />
         </section>
         {error && (
