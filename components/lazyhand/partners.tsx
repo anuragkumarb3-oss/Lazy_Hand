@@ -11,7 +11,7 @@ const MANAGED_SHOP_ID = 'gupta'
 
 function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: string; right?: React.ReactNode }) {
   return (
-    <header className="bg-ink px-4 pb-5 pt-[max(env(safe-area-inset-top),18px)] text-white">
+    <header className="bg-gradient-to-br from-brand to-[#FFA94D] px-4 pb-5 pt-[max(env(safe-area-inset-top),18px)] text-white">
       <div className="mx-auto flex max-w-md items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium text-white/70">{eyebrow}</p>
