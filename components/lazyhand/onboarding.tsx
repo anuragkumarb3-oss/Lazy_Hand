@@ -179,15 +179,27 @@ function OrbitAnimation({ active, done }: { active: boolean; done: boolean }) {
   )
 }
 
-export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOtp: (phone: string) => void; onGuest: () => void; onSignup: () => void; onBack: () => void }) {
+export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOtp: (phone: string) => Promise<void>; onGuest: () => void; onSignup: () => void; onBack: () => void }) {
   const [phone, setPhone] = useState('')
   const [error, setError] = useState('')
+  const [requestError, setRequestError] = useState('')
+  const [isRequesting, setIsRequesting] = useState(false)
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     const problem = validatePhone(phone)
     setError(problem)
-    if (!problem) onSendOtp(phone)
+    if (problem) return
+
+    setRequestError('')
+    setIsRequesting(true)
+    try {
+      await onSendOtp(phone)
+    } catch (cause) {
+      setRequestError(cause instanceof Error ? cause.message : 'We could not send a code. Please try again.')
+    } finally {
+      setIsRequesting(false)
+    }
   }
 
   return (
@@ -196,8 +208,15 @@ export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOt
         <BackButton onClick={onBack} />
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Welcome back</h1>
-      <p className="mt-2 text-sm leading-6 text-muted-ink">This preview does not send SMS. Use any 4 digits to try the demo, or continue as a guest.</p>
-      <form onSubmit={submit} noValidate className="mt-6 flex flex-col gap-4">
+      <p className="mt-2 text-sm leading-6 text-muted-ink">We&apos;ll text a one-time code to your Indian mobile number. You can also continue as a guest.</p>
+      <form
+        onKeyDown={event => {
+          if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault()
+        }}
+        onSubmit={submit}
+        noValidate
+        className="mt-6 flex flex-col gap-4"
+      >
         <Field
           id="login-phone"
           label="Mobile number"
@@ -214,7 +233,8 @@ export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOt
           }}
           error={error}
         />
-        <PrimaryButton type="submit">Send OTP</PrimaryButton>
+        <PrimaryButton type="submit" disabled={isRequesting}>{isRequesting ? 'Sending code…' : 'Send OTP'}</PrimaryButton>
+        {requestError && <p role="alert" className="text-xs text-[#B91C1C]">{requestError}</p>}
       </form>
       <div className="my-5 flex items-center gap-3 text-xs text-muted-ink">
         <span className="h-px flex-1 bg-line" />
@@ -232,21 +252,30 @@ export function LoginScreen({ onSendOtp, onGuest, onSignup, onBack }: { onSendOt
   )
 }
 
-export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVerified: () => void; onBack: () => void }) {
+export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVerified: (code: string) => Promise<void>; onBack: () => void }) {
   const [digits, setDigits] = useState(['', '', '', ''])
   const [error, setError] = useState('')
+  const [isVerifying, setIsVerifying] = useState(false)
   const refs = useRef<(HTMLInputElement | null)[]>([])
 
   useEffect(() => {
     refs.current[0]?.focus()
   }, [])
 
-  const verify = (code: string[]) => {
+  const verify = async (code: string[]) => {
     if (code.some(d => d === '')) {
       setError('Enter all 4 digits')
       return
     }
-    onVerified()
+    setError('')
+    setIsVerifying(true)
+    try {
+      await onVerified(code.join(''))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'That code could not be verified. Try again.')
+    } finally {
+      setIsVerifying(false)
+    }
   }
 
   const setDigit = (index: number, raw: string) => {
@@ -260,8 +289,7 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
     setDigits(next)
     setError('')
     const firstEmpty = next.findIndex(d => d === '')
-    if (firstEmpty === -1) verify(next)
-    else if (incoming) refs.current[Math.min(firstEmpty, 3)]?.focus()
+    if (firstEmpty >= 0 && incoming) refs.current[Math.min(firstEmpty, 3)]?.focus()
   }
 
   return (
@@ -269,13 +297,16 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
       <header>
         <BackButton onClick={onBack} />
       </header>
-      <h1 className="mt-6 text-3xl font-bold tracking-tight">Try the sign-in demo</h1>
-      <p className="mt-2 text-sm text-muted-ink">No SMS is sent in this preview. Enter any 4 digits to continue with +91 {phone.slice(0, 5)} {phone.slice(5)}.</p>
+      <h1 className="mt-6 text-3xl font-bold tracking-tight">Verify your number</h1>
+      <p className="mt-2 text-sm text-muted-ink">Enter the code sent to +91 {phone.slice(0, 5)} {phone.slice(5)}.</p>
       <form
         noValidate
-        onSubmit={e => {
-          e.preventDefault()
-          verify(digits)
+        onKeyDown={event => {
+          if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault()
+        }}
+        onSubmit={event => {
+          event.preventDefault()
+          void verify(digits)
         }}
         className="mt-7 flex flex-col gap-5"
       >
@@ -290,6 +321,7 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
                 }}
                 value={digit}
                 onChange={e => setDigit(index, e.target.value)}
+                disabled={isVerifying}
                 onKeyDown={e => {
                   if (e.key === 'Backspace' && !digit && index > 0) refs.current[index - 1]?.focus()
                 }}
@@ -306,7 +338,7 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
           </div>
         </fieldset>
         {error && <p role="alert" className="text-center text-xs text-[#DC2626]">{error}</p>}
-        <PrimaryButton type="submit">Continue to demo</PrimaryButton>
+        <PrimaryButton type="submit" disabled={isVerifying}>{isVerifying ? 'Verifying…' : 'Verify code'}</PrimaryButton>
       </form>
     </Screen>
   )
@@ -314,18 +346,22 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
 
 type SignupErrors = Partial<Record<keyof Profile, string>>
 
-export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: Profile; onCreate: (profile: Profile) => void; onLogin: () => void; onBack: () => void }) {
+export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: Profile; onCreate: (profile: Profile) => Promise<void>; onLogin: () => void; onBack: () => void }) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<SignupErrors>({})
+  const [submitError, setSubmitError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const update = <K extends keyof Profile>(key: K, value: Profile[K]) => {
     setForm(f => ({ ...f, [key]: value }))
     if (errors[key]) setErrors(e => ({ ...e, [key]: undefined }))
   }
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     const next: SignupErrors = {}
+    const phoneError = validatePhone(form.phone)
+    if (phoneError) next.phone = phoneError
     if (form.name.trim().length < 2) next.name = 'Enter at least 2 characters'
     setErrors(next)
     const firstInvalid = Object.keys(next)[0]
@@ -337,7 +373,15 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
       target?.focus()
       return
     }
-    onCreate({ ...form, name: form.name.trim() })
+    setSubmitError('')
+    setIsSubmitting(true)
+    try {
+      await onCreate({ ...form, phone: form.phone.replace(/\D/g, '').slice(0, 10), name: form.name.trim() })
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : 'We could not send a code. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -346,8 +390,16 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
         <BackButton onClick={onBack} />
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Create your account</h1>
-      <p className="mt-2 text-sm text-muted-ink">One quick detail to get started.</p>
-      <form onSubmit={submit} noValidate className="mt-6 flex flex-col gap-4">
+      <p className="mt-2 text-sm text-muted-ink">Verify your mobile number and add a few details.</p>
+      <form
+        onKeyDown={event => {
+          if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault()
+        }}
+        onSubmit={submit}
+        noValidate
+        className="mt-6 flex flex-col gap-4"
+      >
+        <Field id="signup-phone" label="Mobile number" Icon={Phone} prefix="+91" inputMode="numeric" autoComplete="tel-national" placeholder="98765 43210" maxLength={10} value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} error={errors.phone} />
         <Field id="signup-name" label="What can we call you?" Icon={UserRound} autoComplete="given-name" placeholder="e.g. Ramesh" value={form.name} onChange={e => update('name', e.target.value)} error={errors.name} />
 
         <div className="rounded-xl border border-line bg-[#FFF8F1] p-3 text-sm">
@@ -357,11 +409,12 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
           </p>
         </div>
 
-        <PrimaryButton type="submit" className="mt-2">{form.role === 'shopkeeper' ? 'Create shopkeeper account' : 'Create customer account'}</PrimaryButton>
+        {submitError && <p role="alert" className="text-xs text-[#B91C1C]">{submitError}</p>}
+        <PrimaryButton type="submit" disabled={isSubmitting} className="mt-2">{isSubmitting ? 'Sending code…' : 'Send verification code'}</PrimaryButton>
         <p className="text-center text-xs leading-5 text-muted-ink">
           Want to deliver for LazyHand? <a href="mailto:help@lazyhand.app?subject=Delivery%20partner%20request" className="font-semibold text-brand-deep underline underline-offset-2">Talk to support</a>
         </p>
-        <p className="text-center text-[11px] leading-5 text-muted-ink">Your name personalizes your experience. This preview does not save your details to an account.</p>
+        <p className="text-center text-[11px] leading-5 text-muted-ink">Your account and profile are saved securely. We only use your number to verify sign-in.</p>
       </form>
       <p className="mt-6 text-center text-sm text-muted-ink">
         Already registered?{' '}

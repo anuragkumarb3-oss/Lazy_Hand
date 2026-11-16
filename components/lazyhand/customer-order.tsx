@@ -208,11 +208,12 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
   const [error, setError] = useState('')
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null)
   const [isPlacing, setIsPlacing] = useState(false)
+  const [isSavingOrder, setIsSavingOrder] = useState(false)
   const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
   const addressMissing = !address || address === 'Set your location'
   const shop = cart.shopId ? shopById[cart.shopId] : null
 
-  const place = () => {
+  const place = async () => {
     if (addressMissing) {
       setError('Add a delivery address before placing the order')
       return
@@ -221,10 +222,18 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       setError(`${shop.name} just closed. Try another shop.`)
       return
     }
-    const order = placeOrder('cod', address)
-    if (order) {
-      setPlacedOrder(order)
-      setIsPlacing(true)
+    setError('')
+    setIsSavingOrder(true)
+    try {
+      const order = await placeOrder('cod', address)
+      if (order) {
+        setPlacedOrder(order)
+        setIsPlacing(true)
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Your order could not be saved. Please try again.')
+    } finally {
+      setIsSavingOrder(false)
     }
   }
 
@@ -304,7 +313,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
-          <PrimaryButton onClick={place}>Place order · {rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}</PrimaryButton>
+          <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}`}</PrimaryButton>
         </div>
       </div>
     </div>
