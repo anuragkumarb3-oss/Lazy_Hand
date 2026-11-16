@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   ActivityIndicator,
   Animated,
+  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,15 @@ import PartnerDashboard from './partner-dashboard'
 type Screen = 'welcome' | 'location' | 'role' | 'home' | 'orders' | 'profile' | 'shop' | 'rider' | 'sellerPreview' | 'riderPreview'
 type Role = 'Customer' | 'Shopkeeper' | 'Delivery partner'
 type IconName = keyof typeof Ionicons.glyphMap
+
+const categories: { name: string; icon: IconName; tint: string; background: string }[] = [
+  { name: 'Chips & Namkeen', icon: 'fast-food-outline', tint: '#B85B18', background: '#FFF1C9' },
+  { name: 'Drinks & Juices', icon: 'water-outline', tint: '#3676CA', background: '#E5F1FF' },
+  { name: 'Bakery & Biscuits', icon: 'pizza-outline', tint: '#B86A24', background: '#FFEAD5' },
+  { name: 'Ice Cream & More', icon: 'ice-cream-outline', tint: '#D64182', background: '#FDE2EF' },
+  { name: 'Vegetables & Fruits', icon: 'leaf-outline', tint: '#388659', background: '#E2F5E9' },
+  { name: 'Dairy & Bread', icon: 'nutrition-outline', tint: '#4078CC', background: '#E4EDFF' },
+]
 
 const palette = {
   ink: '#252C37',
@@ -117,7 +127,7 @@ function Field({ label, value, onChangeText, placeholder, keyboardType }: {
 
 function TabBar({ active, onNavigate }: { active: 'home' | 'orders' | 'profile'; onNavigate: (screen: Screen) => void }) {
   const tabs: { label: string; screen: 'home' | 'orders' | 'profile'; icon: IconName }[] = [
-    { label: 'Discover', screen: 'home', icon: 'compass-outline' },
+    { label: 'Home', screen: 'home', icon: 'compass-outline' },
     { label: 'Orders', screen: 'orders', icon: 'receipt-outline' },
     { label: 'Profile', screen: 'profile', icon: 'person-circle-outline' },
   ]
@@ -146,8 +156,9 @@ export default function LazyHandApp() {
   const [screen, setScreen] = useState<Screen>('welcome')
   const [role, setRole] = useState<Role>('Customer')
   const [place, setPlace] = useState('')
-  const [postalCode, setPostalCode] = useState('')
   const [locationState, setLocationState] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('All')
   const [locationMessage, setLocationMessage] = useState('')
   const [notificationEnabled, setNotificationEnabled] = useState(false)
   const [shopName, setShopName] = useState('')
@@ -158,44 +169,61 @@ export default function LazyHandApp() {
   const [riderArea, setRiderArea] = useState('')
   const [notice, setNotice] = useState('')
   const entrance = useRef(new Animated.Value(0)).current
+  const locationOrbit = useRef(new Animated.Value(0)).current
+  const locationOrbitReverse = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
     entrance.setValue(0)
     Animated.spring(entrance, { toValue: 1, useNativeDriver: false, speed: 15, bounciness: 3 }).start()
   }, [entrance, screen])
 
+  useEffect(() => {
+    if (screen !== 'location') return
+    const clockwise = Animated.loop(Animated.timing(locationOrbit, { toValue: 1, duration: 14000, useNativeDriver: true }))
+    const counterClockwise = Animated.loop(Animated.timing(locationOrbitReverse, { toValue: 1, duration: 9500, useNativeDriver: true }))
+    clockwise.start()
+    counterClockwise.start()
+    return () => {
+      clockwise.stop()
+      counterClockwise.stop()
+    }
+  }, [locationOrbit, locationOrbitReverse, screen])
+
   const enter = (next: Screen) => {
     setNotice('')
     setScreen(next)
   }
 
-  const requestLocation = async () => {
+  const requestLocation = useCallback(async () => {
     setLocationState('loading')
-    setLocationMessage('')
+    setLocationMessage('Waiting for location permission…')
     try {
       const permission = await Location.requestForegroundPermissionsAsync()
       if (permission.status !== 'granted') {
         setLocationState('denied')
-        setLocationMessage('Location permission is off. You can enable it in Android Settings or enter your PIN code below.')
+        setLocationMessage('Location access is off. Enable it for LazyHand in your device settings, then try again.')
         return
       }
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-      const address = (await Location.reverseGeocodeAsync(position.coords))[0]
-      const detectedPin = address?.postalCode?.replace(/\s/g, '') || ''
-      const detectedArea = [address?.district, address?.city, address?.region].filter(Boolean).join(', ')
-      setPostalCode(detectedPin)
-      setPlace(detectedArea)
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      let detectedArea = ''
+      try {
+        const address = (await Location.reverseGeocodeAsync(position.coords))[0]
+        detectedArea = [address?.district, address?.city, address?.region].filter(Boolean).join(', ')
+      } catch {
+        detectedArea = ''
+      }
+      setPlace(detectedArea || 'Current location')
       setLocationState('granted')
-      setLocationMessage(detectedPin === '845420'
-        ? 'PIN code 845420 detected. Exact 6 km availability still needs the shop hub location.'
-        : detectedPin
-          ? `PIN code ${detectedPin} detected. LazyHand is piloting around 845420; we cannot confirm coverage until the hub is set.`
-          : 'Location detected. We could not read a PIN code here, so coverage is not confirmed.')
+      setLocationMessage(detectedArea ? `Location detected near ${detectedArea}.` : 'Your current location has been detected.')
     } catch {
       setLocationState('denied')
-      setLocationMessage('We could not read your location. Enter your PIN code to continue.')
+      setLocationMessage('We couldn’t get a location fix. Check that device location is on and try again.')
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (screen === 'location') void requestLocation()
+  }, [requestLocation, screen])
 
   const requestNotifications = async () => {
     try {
@@ -215,26 +243,25 @@ export default function LazyHandApp() {
   }
 
   if (screen === 'welcome') return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
-      <Animated.View style={[styles.welcome, contentStyle]}>
+    <SafeAreaView style={[styles.safeArea, styles.welcomeSafeArea]}>
+      <StatusBar barStyle="light-content" />
+      <Animated.View style={[styles.welcome, styles.welcomeOrange, contentStyle]}>
         <View style={styles.welcomeTop}>
-          <View style={styles.welcomeBrand}><BrandMark size={52} /><Text style={styles.wordmark}>LazyHand</Text></View>
-          <View style={styles.welcomeGraphic}>
-            <View style={styles.graphicOrbit} />
-            <View style={styles.graphicCenter}><Ionicons name="basket" size={43} color={palette.forest} /></View>
-            <View style={styles.graphicBadge}><Ionicons name="flash" size={18} color={palette.ink} /></View>
-            <View style={styles.graphicDot} />
+          <View style={styles.welcomeLogoCard}>
+            <Image source={require('../public/lazyhand-logo.png')} resizeMode="contain" style={styles.welcomeLogo} accessibilityLabel="LazyHand hand-drawn logo" />
           </View>
-          <View style={styles.welcomeCopy}>
-            <Text style={styles.eyebrow}>YOUR LOCAL SHOPS, A LITTLE CLOSER</Text>
-            <Text style={styles.welcomeTitle}>Good things{ '\n' }are around the{ '\n' }corner.</Text>
-            <Text style={styles.welcomeDescription}>Discover independent shops in the LazyHand pilot area.</Text>
-          </View>
+          <Text style={styles.welcomeBrandTitle}>LazyHand</Text>
+          <Text style={styles.welcomeTagline}>Your neighborhood, at your doorstep in 20 minutes.</Text>
         </View>
         <View style={styles.welcomeActions}>
-          <PrimaryButton title="Set my location" icon="navigate" onPress={() => enter('location')} />
-          <Text style={styles.privacyNote}>Your location is only requested after you choose to share it.</Text>
+          <Pressable accessibilityRole="button" onPress={() => enter('location')} style={({ pressed }) => [styles.welcomeButton, pressed && styles.buttonDimmed]}>
+            <Text style={styles.welcomeButtonText}>Get started</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => setNotice('Sign-in is not available in this preview yet.')} style={styles.welcomeLogin}>
+            <Text style={styles.welcomeLoginText}>Already have an account? <Text style={styles.welcomeLoginStrong}>Log in</Text></Text>
+          </Pressable>
+          {notice ? <Text accessibilityRole="alert" style={styles.welcomeNotice}>{notice}</Text> : null}
+          <Text style={styles.privacyNote}>Location access is requested after you continue.</Text>
         </View>
       </Animated.View>
     </SafeAreaView>
@@ -244,19 +271,27 @@ export default function LazyHandApp() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <Header title="Your neighborhood" onBack={() => enter('welcome')} />
-      <Animated.ScrollView style={[styles.screenBody, contentStyle]} contentContainerStyle={styles.locationBody} keyboardShouldPersistTaps="handled">
-        <View style={styles.locationIllustration}><Ionicons name="location" size={38} color={palette.forest} /><View style={styles.locationPulse} /></View>
-        <Text style={styles.pageTitle}>Start with{ '\n' }your location.</Text>
-        <Text style={styles.bodyText}>We use your device location only after permission to check nearby availability. The pilot PIN is 845420.</Text>
-        <PrimaryButton title="Detect my location" icon="locate" onPress={requestLocation} loading={locationState === 'loading'} />
-        <View style={styles.permissionRow}><Ionicons name="shield-checkmark-outline" size={17} color={palette.leaf} /><Text style={styles.permissionText}>Precise location is used only while checking service coverage.</Text></View>
-        <Field label="PIN code" value={postalCode} onChangeText={setPostalCode} placeholder="Enter your 6-digit PIN code" keyboardType="numeric" />
-        <Field label="Area or landmark (optional)" value={place} onChangeText={setPlace} placeholder="Apartment, street or landmark" />
-        {locationMessage ? <View style={styles.noticeCard}><Ionicons name="information-circle-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>{locationMessage}</Text></View> : null}
-        <View style={styles.noticeCard}><Ionicons name="radio-outline" size={18} color={palette.saffron} /><Text style={styles.noticeText}>A PIN code covers a wider area than 6 km. We need the exact shop hub address before we can accurately confirm delivery range.</Text></View>
-        <QuietButton title={notificationEnabled ? 'Permission enabled on device' : 'Allow notifications'} icon={notificationEnabled ? 'notifications' : 'notifications-outline'} onPress={requestNotifications} />
+      <Animated.ScrollView style={[styles.screenBody, contentStyle]} contentContainerStyle={styles.locationBody}>
+        <View style={styles.locationIllustration}>
+          <Animated.View style={[styles.locationOrbit, { transform: [{ rotate: locationOrbit.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}><View style={styles.locationOrbitDot} /></Animated.View>
+          <Animated.View style={[styles.locationOrbitInner, { transform: [{ rotate: locationOrbitReverse.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-360deg'] }) }] }]}><View style={styles.locationOrbitDotInner} /></Animated.View>
+          <View style={styles.locationPin}><Ionicons name="location" size={27} color={palette.card} /></View>
+        </View>
+        <Text style={styles.eyebrow}>NEARBY, WITHOUT THE GUESSWORK</Text>
+        <Text style={styles.pageTitle}>Find shops around you.</Text>
+        <Text style={styles.bodyText}>Allow location access and LazyHand will find your current area automatically. No PIN code or typed address needed.</Text>
+        <View style={styles.locationStatusCard}>
+          <View style={styles.locationStatusIcon}><Ionicons name={locationState === 'granted' ? 'checkmark' : 'navigate'} size={20} color={locationState === 'granted' ? '#388659' : palette.forest} /></View>
+          <View style={styles.locationStatusCopy}>
+            <Text style={styles.locationStatusTitle}>{locationState === 'granted' ? 'Location detected' : locationState === 'loading' ? 'Finding your location…' : 'Waiting for location access'}</Text>
+            {locationState === 'granted' && place ? <Text style={styles.locationStatusArea}>{place}</Text> : null}
+            <Text accessibilityRole="text" style={styles.locationStatusMessage}>{locationMessage || 'Your device will ask for permission when this screen opens.'}</Text>
+          </View>
+        </View>
+        {locationState === 'denied' ? <QuietButton title="Try location again" icon="locate-outline" onPress={requestLocation} /> : null}
+        <View style={styles.permissionRow}><Ionicons name="shield-checkmark-outline" size={17} color={palette.leaf} /><Text style={styles.permissionText}>Your location stays on this device in this preview and is not saved to a server.</Text></View>
         <View style={styles.flexSpacer} />
-        <PrimaryButton title="Choose how to use LazyHand" icon="arrow-forward" onPress={() => enter('role')} />
+        <PrimaryButton title={locationState === 'granted' ? 'Continue' : 'Continue without location'} icon="arrow-forward" onPress={() => enter('role')} />
       </Animated.ScrollView>
     </SafeAreaView>
   )
@@ -346,7 +381,7 @@ export default function LazyHandApp() {
       <Header title="Your profile" />
       <ScrollView contentContainerStyle={styles.profileBody}>
         <View style={styles.profileHero}><View style={styles.profileAvatar}><Ionicons name="person" size={29} color={palette.forest} /></View><View style={styles.profileCopy}><Text style={styles.profileName}>Welcome to LazyHand</Text><Text style={styles.profileSub}>Sign-in is required to save addresses and orders.</Text></View></View>
-        <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={postalCode ? `${postalCode}${place ? ` · ${place}` : ''}` : 'Add your location'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Notifications" detail={notificationEnabled ? 'Permission enabled; order alerts need backend setup' : 'Off'} onPress={requestNotifications} /></View>
+        <View style={styles.profileSection}><Text style={styles.sectionTitle}>ACCOUNT</Text><ProfileRow icon="call-outline" title="Phone sign-in" detail="OTP provider not configured" onPress={() => setNotice('Phone OTP cannot be activated without an SMS identity provider and server configuration.')} /><ProfileRow icon="location-outline" title="Delivery address" detail={locationState === 'granted' ? place || 'Current location' : 'Location not shared'} onPress={() => enter('location')} /><ProfileRow icon="notifications-outline" title="Notifications" detail={notificationEnabled ? 'Permission enabled; order alerts need backend setup' : 'Off'} onPress={requestNotifications} /></View>
         <View style={styles.profileSection}><Text style={styles.sectionTitle}>PARTNER WITH LAZYHAND</Text><ProfileRow icon="storefront-outline" title="Register a shop" detail="Admin review required" onPress={() => enter('shop')} /><ProfileRow icon="bicycle-outline" title="Become a delivery partner" detail="Apply for the pilot" onPress={() => enter('rider')} /></View>
         <View style={styles.noticeCard}><Ionicons name="shield-checkmark-outline" size={18} color={palette.forest} /><Text style={styles.noticeText}>LazyHand asks for location and notification permission only when you choose those actions. You can revoke either in Android Settings.</Text></View>
         {notice ? <Text accessibilityRole="alert" style={styles.alertText}>{notice}</Text> : null}
@@ -356,17 +391,43 @@ export default function LazyHandApp() {
   )
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={[styles.safeArea, styles.homeSafeArea]}>
+      <StatusBar barStyle="light-content" />
       <View style={styles.mainShell}>
-        <Header title="Discover" right={<Pressable accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => enter('profile')} style={styles.iconButton}><Ionicons name="person-outline" size={20} color={palette.ink} /></Pressable>} />
-        <ScrollView contentContainerStyle={styles.homeContent}>
-          <View style={styles.locationPill}><Ionicons name="location" size={16} color={palette.forest} /><View style={styles.locationPillCopy}><Text style={styles.locationPillLabel}>YOUR AREA</Text><Text style={styles.locationPillValue} numberOfLines={1}>{postalCode || 'Set location to check availability'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Change location" onPress={() => enter('location')}><Ionicons name="chevron-forward" size={18} color={palette.forest} /></Pressable></View>
-          <View style={styles.homeHero}><View style={styles.heroDecor}><View style={styles.heroCircle}><Ionicons name="storefront" size={34} color={palette.ink} /></View><View style={styles.heroSpark}><Ionicons name="sparkles" size={16} color={palette.ink} /></View></View><Text style={styles.heroEyebrow}>SMALL SHOPS. BIG HEART.</Text><Text style={styles.heroTitle}>Your neighborhood,{ '\n' }on your terms.</Text><Text style={styles.heroBody}>Discover local shops when the LazyHand pilot opens in your area.</Text><View style={styles.hubBadge}><View style={styles.onlineDot} /><Text style={styles.hubBadgeText}>PILOT PIN 845420 · COVERAGE CHECK REQUIRED</Text></View></View>
-          <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Around your corner</Text><Text style={styles.sectionSub}>Independent shops, when available</Text></View><Ionicons name="arrow-forward" size={18} color={palette.forest} /></View>
-          <View style={styles.emptyCard}><View style={styles.emptyIcon}><Ionicons name="storefront-outline" size={28} color={palette.forest} /></View><Text style={styles.emptyTitle}>No shops listed yet</Text><Text style={styles.emptyBody}>We removed the sample shops and products. Registered shops will appear here after approval and catalog setup.</Text><QuietButton title="Register a shop" icon="add-circle-outline" onPress={() => enter('shop')} /></View>
-          <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Your way to help</Text><Text style={styles.sectionSub}>Join the neighborhood network</Text></View></View>
-          <Pressable accessibilityRole="button" onPress={() => enter('rider')} style={({ pressed }) => [styles.partnerCard, pressed && styles.buttonDimmed]}><View style={styles.partnerIcon}><Ionicons name="bicycle-outline" size={23} color={palette.forest} /></View><View style={styles.partnerCopy}><Text style={styles.partnerTitle}>Deliver close to home</Text><Text style={styles.partnerSub}>Apply to become a delivery partner</Text></View><Ionicons name="chevron-forward" size={18} color={palette.forest} /></Pressable>
+        <ScrollView contentContainerStyle={styles.homeScroll} keyboardShouldPersistTaps="handled">
+          <View style={styles.homeOrangeHeader}>
+            <View style={styles.homeHeaderRow}>
+              <View style={styles.homeDeliveryBlock}>
+                <Text style={styles.homeDeliveryLabel}>DELIVERING TO</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Detect your current location" onPress={() => enter('location')} style={styles.homeDeliveryButton}>
+                  <Ionicons name="location" size={16} color={palette.card} />
+                  <Text numberOfLines={1} style={styles.homeDeliveryValue}>{locationState === 'granted' ? place || 'Current location' : 'Find nearby shops'}</Text>
+                  <Ionicons name="chevron-down" size={15} color={palette.card} />
+                </Pressable>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Open profile" onPress={() => enter('profile')} style={styles.homeProfileButton}><Ionicons name="person-outline" size={20} color={palette.forest} /></Pressable>
+            </View>
+            <View style={styles.homeSearchBar}>
+              <Ionicons name="search" size={18} color={palette.muted} />
+              <TextInput accessibilityLabel="Search local shops and categories" value={searchQuery} onChangeText={setSearchQuery} placeholder="Search milk, chips, bread" placeholderTextColor="#8B9199" returnKeyType="search" style={styles.homeSearchInput} />
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickCategoryRow}>
+              {['All', 'Snacks', 'Drinks', 'Bakery', 'Dairy'].map(category => <Pressable key={category} accessibilityRole="button" accessibilityState={{ selected: selectedCategory === category }} onPress={() => setSelectedCategory(category)} style={[styles.quickCategory, selectedCategory === category && styles.quickCategoryActive]}><Text style={[styles.quickCategoryText, selectedCategory === category && styles.quickCategoryTextActive]}>{category}</Text></Pressable>)}
+            </ScrollView>
+          </View>
+          <View style={styles.homeContent}>
+            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Categories</Text><Text style={styles.sectionSub}>Find what you need from local shops</Text></View><Pressable accessibilityRole="button" onPress={() => setSelectedCategory('All')}><Text style={styles.seeAllText}>See all</Text></Pressable></View>
+            <View style={styles.categoryGrid}>
+              {categories.map(category => <Pressable key={category.name} accessibilityRole="button" accessibilityState={{ selected: selectedCategory === category.name }} onPress={() => setSelectedCategory(category.name)} style={[styles.categoryTile, selectedCategory === category.name && styles.categoryTileSelected]}><View style={[styles.categoryIcon, { backgroundColor: category.background }]}><Ionicons name={category.icon} size={23} color={category.tint} /></View><Text style={styles.categoryTitle}>{category.name}</Text></Pressable>)}
+            </View>
+            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Shops near you</Text><Text style={styles.sectionSub}>Local favorites, delivered nearby</Text></View></View>
+            <View style={styles.emptyCard}>
+              <View style={styles.emptyIcon}><Ionicons name="storefront-outline" size={28} color={palette.forest} /></View>
+              <Text style={styles.emptyTitle}>More neighborhood shops are joining</Text>
+              <Text style={styles.emptyBody}>{searchQuery ? `No live shops match “${searchQuery}” just yet.` : selectedCategory === 'All' ? 'We’ll show nearby stores here as soon as they’re available in your area.' : `Shops in ${selectedCategory} will appear here when local listings are available.`}</Text>
+              <QuietButton title="Register your shop" icon="add-circle-outline" onPress={() => enter('shop')} />
+            </View>
+          </View>
         </ScrollView>
         <TabBar active="home" onNavigate={enter} />
       </View>
@@ -386,9 +447,43 @@ function ProfileRow({ icon, title, detail, onPress }: { icon: IconName; title: s
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: palette.paper },
+  welcomeSafeArea: { backgroundColor: palette.lime },
+  homeSafeArea: { backgroundColor: palette.lime },
   mainShell: { flex: 1, backgroundColor: palette.paper },
+  homeScroll: { paddingBottom: 12 },
+  homeOrangeHeader: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 16, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: palette.lime },
+  homeHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  homeDeliveryBlock: { flex: 1, minWidth: 0 },
+  homeDeliveryLabel: { color: 'rgba(255,255,255,0.82)', fontSize: 9, fontWeight: '900', letterSpacing: 1.3 },
+  homeDeliveryButton: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%' },
+  homeDeliveryValue: { flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  homeProfileButton: { width: 40, height: 40, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  homeSearchBar: { height: 47, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, paddingHorizontal: 13, borderRadius: 15, backgroundColor: '#FFFFFF' },
+  homeSearchInput: { flex: 1, minWidth: 0, color: palette.ink, fontSize: 12 },
+  quickCategoryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 11 },
+  quickCategory: { minHeight: 31, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.22)' },
+  quickCategoryActive: { backgroundColor: '#FFFFFF' },
+  quickCategoryText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+  quickCategoryTextActive: { color: palette.forest },
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 9 },
+  categoryTile: { width: '31.5%', minHeight: 100, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 8, borderWidth: 1, borderColor: palette.line, borderRadius: 17, backgroundColor: '#FFFFFF' },
+  categoryTileSelected: { borderColor: palette.lime },
+  categoryIcon: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 15 },
+  categoryTitle: { color: palette.ink, fontSize: 9, lineHeight: 12, fontWeight: '800', textAlign: 'center' },
+  seeAllText: { color: palette.forest, fontSize: 10, fontWeight: '900' },
   welcome: { flex: 1, paddingHorizontal: 25, paddingTop: 14, paddingBottom: 14, justifyContent: 'space-between' },
-  welcomeTop: { flex: 1, justifyContent: 'center' },
+  welcomeOrange: { backgroundColor: palette.lime },
+  welcomeLogoCard: { width: 216, height: 110, alignItems: 'center', justifyContent: 'center', padding: 10, borderRadius: 28, backgroundColor: '#FFF9F2', elevation: 5, shadowColor: palette.leaf, shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
+  welcomeLogo: { width: 190, height: 88 },
+  welcomeBrandTitle: { color: '#FFFFFF', fontSize: 31, fontWeight: '900', letterSpacing: -0.8, marginTop: 18 },
+  welcomeTagline: { maxWidth: 250, color: 'rgba(255,255,255,0.9)', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
+  welcomeTop: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  welcomeButton: { minHeight: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 17, backgroundColor: '#FFFFFF' },
+  welcomeButtonText: { color: palette.forest, fontSize: 14, fontWeight: '900' },
+  welcomeLogin: { minHeight: 38, alignItems: 'center', justifyContent: 'center' },
+  welcomeLoginText: { color: 'rgba(255,255,255,0.9)', fontSize: 11 },
+  welcomeLoginStrong: { color: '#FFFFFF', fontWeight: '900' },
+  welcomeNotice: { color: '#FFFFFF', fontSize: 11, lineHeight: 16, textAlign: 'center' },
   welcomeBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandMark: { backgroundColor: palette.forest, alignItems: 'center', justifyContent: 'center' },
   wordmark: { color: palette.ink, fontSize: 21, fontWeight: '900', letterSpacing: -0.7 },
@@ -402,7 +497,7 @@ const styles = StyleSheet.create({
   welcomeTitle: { color: palette.ink, fontSize: 32, lineHeight: 35, fontWeight: '900', letterSpacing: -1.1 },
   welcomeDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 290 },
   welcomeActions: { gap: 12, paddingTop: 20 },
-  privacyNote: { color: palette.muted, fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 12 },
+  privacyNote: { color: 'rgba(255,255,255,0.82)', fontSize: 10, lineHeight: 15, textAlign: 'center', paddingHorizontal: 12 },
   primaryButton: { minHeight: 54, paddingHorizontal: 18, borderRadius: 17, backgroundColor: palette.forest, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   primaryButtonText: { color: palette.card, fontSize: 14, fontWeight: '900', letterSpacing: 0.1 },
   buttonDimmed: { opacity: 0.65, transform: [{ scale: 0.985 }] },
@@ -417,8 +512,18 @@ const styles = StyleSheet.create({
   locationBody: { paddingBottom: 20 },
   pageTitle: { color: palette.ink, fontSize: 29, lineHeight: 33, fontWeight: '900', letterSpacing: -0.9, marginTop: 4 },
   bodyText: { color: palette.muted, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 16 },
-  locationIllustration: { width: 78, height: 78, borderRadius: 28, backgroundColor: palette.lime, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
-  locationPulse: { position: 'absolute', right: 8, top: 8, width: 12, height: 12, borderRadius: 6, backgroundColor: palette.saffron, borderWidth: 2, borderColor: palette.paper },
+  locationIllustration: { width: 112, height: 112, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  locationOrbit: { position: 'absolute', width: 108, height: 108, borderWidth: 1, borderStyle: 'dashed', borderColor: '#D7B69B', borderRadius: 54 },
+  locationOrbitInner: { position: 'absolute', width: 82, height: 82, borderWidth: 1, borderColor: '#E8D8C7', borderRadius: 41 },
+  locationOrbitDot: { position: 'absolute', top: -5, left: 48, width: 11, height: 11, borderRadius: 6, backgroundColor: palette.lime, borderWidth: 2, borderColor: palette.paper },
+  locationOrbitDotInner: { position: 'absolute', bottom: 3, left: 35, width: 8, height: 8, borderRadius: 4, backgroundColor: palette.leaf, borderWidth: 2, borderColor: palette.paper },
+  locationPin: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: palette.lime, elevation: 4, shadowColor: palette.leaf, shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } },
+  locationStatusCard: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 13, borderRadius: 18, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.card },
+  locationStatusIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: palette.softGreen },
+  locationStatusCopy: { flex: 1 },
+  locationStatusTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
+  locationStatusArea: { color: palette.forest, fontSize: 10, fontWeight: '800', marginTop: 3 },
+  locationStatusMessage: { color: palette.muted, fontSize: 10, lineHeight: 14, marginTop: 4 },
   permissionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 12, marginBottom: 8 },
   permissionText: { flex: 1, color: palette.muted, fontSize: 11, lineHeight: 16 },
   fieldWrap: { marginTop: 11 },
