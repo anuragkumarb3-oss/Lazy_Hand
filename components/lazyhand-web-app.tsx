@@ -103,6 +103,7 @@ function LazyHandShell() {
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
   const [sessionReady, setSessionReady] = useState(false)
+  const [sellerRequestSubmitted, setSellerRequestSubmitted] = useState(false)
   const [pendingRole, setPendingRole] = useState<Role>('customer')
   const [activeRole, setActiveRole] = useState<Role>('customer')
   const [loginPhone, setLoginPhone] = useState('')
@@ -215,18 +216,28 @@ function LazyHandShell() {
     } catch {
       throw new Error('Your account was verified, but we could not load your profile. Please try again.')
     }
-    const verifiedProfile = pendingProfile ?? existingProfile ?? {
-      ...emptyProfile,
-      phone: loginPhone,
-      name: typeof data.user.user_metadata?.name === 'string' ? data.user.user_metadata.name : '',
-      role: afterOtp,
-    }
+    const requestedSellerAccess = pendingProfile?.role === 'shopkeeper'
+    const verifiedProfile = pendingProfile
+      ? { ...pendingProfile, role: existingProfile?.role ?? 'customer', shopType: existingProfile?.shopType ?? '' }
+      : existingProfile ?? {
+          ...emptyProfile,
+          phone: loginPhone,
+          name: typeof data.user.user_metadata?.name === 'string' ? data.user.user_metadata.name : '',
+          role: 'customer',
+        }
     if (pendingProfile || !existingProfile) {
       try {
         await saveProfile(data.user.id, verifiedProfile)
       } catch {
         throw new Error('Your account was verified, but we could not save your profile. Please try again.')
       }
+    }
+    if (requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
+      const { error: applicationError } = await supabase.from('seller_applications').insert({ user_id: data.user.id })
+      if (applicationError && applicationError.code !== '23505') {
+        throw new Error('Your account is ready, but your shopkeeper request could not be submitted. Please contact support.')
+      }
+      setSellerRequestSubmitted(true)
     }
 
     setAuthenticatedUserId(data.user.id)
@@ -303,6 +314,7 @@ function LazyHandShell() {
     void createSupabaseClient().auth.signOut()
     setAuthenticatedUserId(null)
     setAuthenticatedPhone('')
+    setSellerRequestSubmitted(false)
     setProfile({ ...emptyProfile })
     setOrders([])
     setOverlay(null)
@@ -352,6 +364,7 @@ function LazyHandShell() {
 
   return (
     <div className="mx-auto min-h-svh w-full max-w-md bg-cream text-ink">
+      {sellerRequestSubmitted && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-3 text-center text-sm text-[#9A3412]">Shopkeeper request received. You can start listing after an administrator approves your account.</p>}
       {body}
       {showNav && (
         <>

@@ -63,7 +63,17 @@ export async function fetchProfile(userId: string) {
 export async function saveProfile(userId: string, profile: Profile) {
   const { error } = await createClient()
     .from('profiles')
-    .upsert(toRow(userId, profile), { onConflict: 'id' })
+    .upsert({
+      id: userId,
+      phone: profile.phone,
+      name: profile.name,
+      whatsapp_number: profile.whatsappNumber,
+      whatsapp_alerts_enabled: profile.whatsappAlertsEnabled,
+      village: profile.village,
+      landmark: profile.landmark,
+      shop_name: profile.shopName,
+      vehicle: profile.vehicle,
+    }, { onConflict: 'id' })
 
   if (error) throw error
 }
