@@ -39,6 +39,9 @@ type LazyHandState = {
   placeOrder: (payment: Payment, address: string) => Promise<Order | null>
   reorder: (order: Order) => void
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
+  verifyOrderOtp: (orderId: string, phase: 'pickup' | 'delivery', code: string) => boolean
+  confirmOrderPayment: (orderId: string) => void
+  remitOrderToSeller: (orderId: string) => void
   toggleShopOpen: (shopId: string) => void
   toggleStock: (productId: string) => void
   addProduct: (product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => void
@@ -62,6 +65,12 @@ export const emptyProfile: Profile = {
 }
 
 let orderCounter = 2410
+
+function createOtp() {
+  const values = new Uint32Array(1)
+  globalThis.crypto.getRandomValues(values)
+  return String(values[0] % 10000).padStart(4, '0')
+}
 
 export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [shops, setShops] = useState(seedShops)
@@ -140,7 +149,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         })
         const result = await response.json().catch(() => null) as { order?: Order; error?: string } | null
         if (!response.ok || !result?.order) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
-        order = result.order
+        order = { ...result.order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }
       } else {
         orderCounter += 1
         order = {
@@ -153,6 +162,10 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
           placedAt: 'Today',
           customerName: profile.name || 'Guest',
           address,
+          pickupOtp: createOtp(),
+          deliveryOtp: createOtp(),
+          pickupVerified: false,
+          paymentConfirmed: false,
         }
       }
 
@@ -176,7 +189,37 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   )
 
   const setOrderStatus = useCallback((orderId: string, status: OrderStatus, riderName?: string) => {
-    setOrders(list => list.map(o => (o.id === orderId ? { ...o, status, riderName: riderName ?? o.riderName } : o)))
+    setOrders(list => {
+      const selected = list.find(order => order.id === orderId)
+      if (!selected) return list
+      const currentRider = riderName ?? selected.riderName ?? (profile.role === 'rider' && profile.name ? profile.name : 'Sunil (you)')
+      const riderBusy = list.some(order => order.id !== orderId && order.riderName === currentRider && ['ready', 'picked'].includes(order.status))
+      if (status === 'ready' && riderBusy && !selected.riderName) return list
+      return list.map(order => order.id === orderId ? {
+        ...order,
+        status,
+        riderName: status === 'ready' ? (riderBusy ? undefined : currentRider) : (riderName ?? order.riderName),
+        pickupOtp: status === 'ready' ? createOtp() : order.pickupOtp,
+      } : order)
+    })
+  }, [profile.name, profile.role])
+
+  const verifyOrderOtp = useCallback((orderId: string, phase: 'pickup' | 'delivery', code: string) => {
+    const currentOrder = orders.find(order => order.id === orderId)
+    const expected = phase === 'pickup' ? currentOrder?.pickupOtp : currentOrder?.deliveryOtp
+    if (!currentOrder || !expected || code.trim() !== expected || (phase === 'delivery' && !currentOrder.paymentConfirmed)) return false
+    setOrders(list => list.map(order => order.id !== orderId ? order : phase === 'pickup'
+      ? { ...order, pickupVerified: true, status: 'picked' }
+      : { ...order, status: 'delivered' }))
+    return true
+  }, [orders])
+
+  const confirmOrderPayment = useCallback((orderId: string) => {
+    setOrders(list => list.map(order => order.id === orderId && order.status === 'picked' ? { ...order, paymentConfirmed: true } : order))
+  }, [])
+
+  const remitOrderToSeller = useCallback((orderId: string) => {
+    setOrders(list => list.map(order => order.id === orderId && order.status === 'delivered' && order.paymentConfirmed ? { ...order, cashRemittedToSeller: true } : order))
   }, [])
 
   const toggleShopOpen = useCallback((shopId: string) => {
@@ -221,6 +264,9 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     placeOrder,
     reorder,
     setOrderStatus,
+    verifyOrderOtp,
+    confirmOrderPayment,
+    remitOrderToSeller,
     toggleShopOpen,
     toggleStock,
     addProduct,

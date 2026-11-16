@@ -179,9 +179,12 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
                 <h2 id="done" className="text-sm font-bold">Handed to rider</h2>
                 <ul className="mt-2 flex flex-col gap-2">
                   {handedOver.map(order => (
-                    <li key={order.id} className="flex items-center justify-between rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
-                      <span>#{order.id}</span>
-                      <StatusPill tone={order.status === 'delivered' ? 'open' : 'info'}>{order.status === 'ready' ? 'Awaiting rider' : order.status === 'picked' ? 'On the way' : 'Delivered'}</StatusPill>
+                    <li key={order.id} className="rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>#{order.id}</span>
+                        <StatusPill tone={order.status === 'delivered' ? 'open' : 'info'}>{order.status === 'ready' ? 'Awaiting rider' : order.status === 'picked' ? 'On the way' : 'Delivered'}</StatusPill>
+                      </div>
+                      {order.status === 'ready' && order.pickupOtp && <p className="mt-2 text-xs text-muted-ink">Give pickup code <strong className="tracking-widest text-ink">{order.pickupOtp}</strong> to the rider only when they collect the packed order.</p>}
                     </li>
                   ))}
                 </ul>
@@ -494,13 +497,16 @@ function ProductEditor({ initial, onSave, onCancel }: { initial?: Product; onSav
 }
 
 export function RiderDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, shopById, profile, setOrderStatus } = useLazyHand()
+  const { orders, shopById, profile, setOrderStatus, verifyOrderOtp, confirmOrderPayment, remitOrderToSeller } = useLazyHand()
   const [tab, setTab] = useState<'trips' | 'earnings' | 'account'>('trips')
   const [online, setOnline] = useState(true)
+  const [handoffCode, setHandoffCode] = useState('')
+  const [handoffError, setHandoffError] = useState('')
   const riderName = profile.role === 'rider' && profile.name ? profile.name : 'Sunil (you)'
   const available = orders.filter(o => o.status === 'ready' && !o.riderName)
   const active = orders.filter(o => o.riderName === riderName && ['ready', 'picked'].includes(o.status))
   const completed = orders.filter(o => o.riderName === riderName && o.status === 'delivered')
+  const pendingSellerDeposits = completed.filter(order => order.paymentConfirmed && !order.cashRemittedToSeller)
   const totalEarned = completed.reduce((total, order) => total + order.riderPayout, 0)
   const averagePayout = completed.length ? totalEarned / completed.length : deliverySlabFor(DEFAULT_DELIVERY_DISTANCE_KM).riderPayout
 
@@ -551,15 +557,45 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                       </span>
                     </li>
                   </ol>
-                  {order.payment === 'cod' && (
-                    <p className="mt-3 rounded-xl bg-[#FEF3C7] px-3 py-2 text-xs font-medium text-[#92400E]">Collect {rupee(order.total)} cash at the door</p>
+                  {!picked ? (
+                    <div className="mt-3 rounded-xl bg-[#FFF8F1] p-3">
+                      <label htmlFor={`pickup-code-${order.id}`} className="text-xs font-semibold">Enter the pickup code from the seller</label>
+                      <input id={`pickup-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
+                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
+                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'pickup', handoffCode); setHandoffError(verified ? '' : 'That code does not match. Ask the seller to confirm the code.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify pickup code</PrimaryButton>
+                    </div>
+                  ) : !order.paymentConfirmed ? (
+                    <div className="mt-3 rounded-xl bg-[#FEF3C7] p-3 text-xs text-[#92400E]">
+                      <p className="font-semibold">Collect {rupee(order.total)} from the customer</p>
+                      <p className="mt-1 leading-5">This preview supports cash confirmation only. Never direct a customer to your personal QR or a third-party QR. An approved in-app payment provider must be connected before digital collection.</p>
+                      <PrimaryButton onClick={() => confirmOrderPayment(order.id)} className="mt-3 h-11">Confirm cash received</PrimaryButton>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl bg-[#F0FDF4] p-3">
+                      <p className="text-xs font-semibold text-[#166534]">Payment confirmed · ask the customer for their delivery code</p>
+                      <label htmlFor={`delivery-code-${order.id}`} className="mt-3 block text-xs font-semibold">Customer delivery code</label>
+                      <input id={`delivery-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
+                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
+                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'delivery', handoffCode); setHandoffError(verified ? '' : 'Payment must be confirmed and the delivery code must match.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify and complete delivery</PrimaryButton>
+                    </div>
                   )}
-                  <PrimaryButton onClick={() => setOrderStatus(order.id, picked ? 'delivered' : 'picked')} className="mt-3 h-11">
-                    {picked ? 'Mark delivered' : 'Picked up from shop'}
-                  </PrimaryButton>
                 </article>
               )
             })}
+
+            {pendingSellerDeposits.length > 0 && (
+              <section aria-labelledby="seller-remittance" className="mt-5 rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4">
+                <h2 id="seller-remittance" className="text-sm font-bold text-[#9A3412]">Settle with the seller before another trip</h2>
+                <p className="mt-1 text-xs leading-5 text-[#9A3412]">Return the order value collected for the seller. Your trip payout stays separate.</p>
+                {pendingSellerDeposits.map(order => (
+                  <div key={order.id} className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-xs">
+                    <span>#{order.id} · seller amount <strong>{rupee(order.itemTotal)}</strong></span>
+                    <button type="button" onClick={() => remitOrderToSeller(order.id)} className="min-h-10 rounded-lg bg-brand px-3 font-semibold text-white">Deposit returned</button>
+                  </div>
+                ))}
+                <p className="mt-2 text-[10px] leading-4 text-muted-ink">Demo confirmation only; no funds move or deposit is verified in this preview.</p>
+              </section>
+            )}
 
             <section aria-labelledby="available" className="mt-5">
               <h2 id="available" className="text-sm font-bold">Available pickups</h2>
@@ -578,8 +614,8 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                       <p className="text-xs text-muted-ink">
                         #{order.id} · drop at {order.address || 'nearby'}
                       </p>
-                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready', riderName)} disabled={active.length > 0} className="mt-3 h-10 text-xs">
-                        {active.length > 0 ? 'Finish your active trip first' : 'Accept trip'}
+                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready', riderName)} disabled={active.length > 0 || pendingSellerDeposits.length > 0} className="mt-3 h-10 text-xs">
+                        {active.length > 0 ? 'Finish your active trip first' : pendingSellerDeposits.length > 0 ? 'Return seller cash first' : 'Accept trip'}
                       </PrimaryButton>
                     </article>
                   ))

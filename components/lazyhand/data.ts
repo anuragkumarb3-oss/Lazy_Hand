@@ -112,6 +112,11 @@ export type Order = {
   customerName: string
   address: string
   riderName?: string
+  pickupOtp?: string
+  deliveryOtp?: string
+  pickupVerified?: boolean
+  paymentConfirmed?: boolean
+  cashRemittedToSeller?: boolean
 }
 
 export const DEFAULT_DELIVERY_DISTANCE_KM = 4

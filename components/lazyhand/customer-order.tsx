@@ -397,6 +397,15 @@ export function TrackingScreen({ orderId, onBack, onViewAs }: { orderId: string;
           )}
         </section>
 
+        {order.status === 'picked' && order.deliveryOtp && (
+          <section className="rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4" aria-labelledby="delivery-code-heading">
+            <h2 id="delivery-code-heading" className="text-sm font-bold">Your delivery code</h2>
+            <p className="mt-1 text-xs leading-5 text-[#9A3412]">Pay the rider first. Only then tell them this code to confirm delivery. Never share it before payment is complete.</p>
+            <p className="mt-3 text-center text-2xl font-extrabold tracking-[0.45em] text-brand-deep" aria-label={`Delivery code ${order.deliveryOtp}`}>{order.deliveryOtp}</p>
+            <p className="mt-2 text-[11px] leading-4 text-muted-ink">In this preview, confirm cash only. Digital/QR collection is not connected; do not pay to a personal or third-party QR.</p>
+          </section>
+        )}
+
         {order.riderName && !rejected && (
           <section className="flex items-center gap-3 rounded-2xl border border-line bg-white p-4">
             <span className="grid size-11 place-items-center rounded-full bg-peach text-sm font-bold text-brand-deep">{order.riderName[0]}</span>
