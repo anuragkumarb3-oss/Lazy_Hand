@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import useSWR from 'swr'
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
 import { Home, LayoutGrid, RefreshCw, ShoppingBag, UserRound } from 'lucide-react'
-import type { CategoryId, Order, Role } from './lazyhand/data'
+import type { Order, Role } from './lazyhand/data'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { fetchProfile, saveProfile } from '@/lib/supabase/profiles'
 import {
@@ -122,7 +122,6 @@ function LazyHandShell() {
     return response.json() as Promise<{ orders: Order[] }>
   })
   const [tab, setTab] = useState<Tab>('home')
-  const [category, setCategory] = useState<CategoryId>('snacks')
   const [overlay, setOverlay] = useState<Overlay>(null)
 
   useEffect(() => {
@@ -336,14 +335,9 @@ function LazyHandShell() {
         area={area}
         onChangeLocation={() => setStage('location')}
         onOpenStore={id => go({ kind: 'store', shopId: id })}
-        onOpenCategory={id => {
-          setCategory(id)
-          setTab('categories')
-          window.scrollTo({ top: 0 })
-        }}
       />
     )
-  else if (tab === 'categories') body = <CategoriesScreen active={category} onSelect={setCategory} />
+  else if (tab === 'categories') body = <CategoriesScreen />
   else if (tab === 'orders') body = <OrderAgainScreen onTrack={id => go({ kind: 'track', orderId: id })} onReordered={() => go({ kind: 'cart' })} />
   else
     body = (

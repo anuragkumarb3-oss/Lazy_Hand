@@ -198,6 +198,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
               <div>
                 <h2 id="products-heading" className="text-lg font-bold">Products & inventory</h2>
                 <p className="mt-1 text-xs leading-5 text-muted-ink">Customers can see in-stock items while your shop is open.</p>
+                <a href="/seller/catalog" className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-line bg-white px-3 text-xs font-semibold text-brand-deep">Manage live catalog</a>
               </div>
               <button type="button" onClick={() => { setEditingProduct(null); setShowProductForm(true) }} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-deep">
                 <Plus className="size-4" aria-hidden="true" /> Add product
