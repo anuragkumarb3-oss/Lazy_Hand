@@ -14,15 +14,18 @@ function ProductRow({ product, showShop }: { product: Product; showShop?: boolea
   const shop = shopById[product.shopId]
   const unavailable = !product.inStock || !shop.open
   return (
-    <li className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
-      <ProductTile category={product.category} />
+    <li className="flex items-center gap-3 rounded-2xl border border-[#EFE4D8] bg-gradient-to-r from-white via-white to-[#FFF9F2] p-3 shadow-[0_6px_18px_-16px_#6B4A34]">
+      <span className="grid size-16 shrink-0 place-items-center rounded-[1.1rem] border border-white bg-white shadow-sm">
+        <ProductTile category={product.category} />
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{product.name}</p>
+        {product.featured && <p className="mb-0.5 text-[9px] font-bold uppercase tracking-[0.13em] text-brand-deep">Neighborhood favorite</p>}
+        <p className="truncate text-sm font-semibold tracking-tight">{product.name}</p>
         <p className="text-xs text-muted-ink">
           {product.unit}
           {showShop && <> · {shop.name}</>}
         </p>
-        <p className="mt-0.5 text-sm font-semibold">{rupee(product.price)}</p>
+        <p className="mt-1 text-base font-extrabold tracking-tight">{rupee(product.price)}</p>
         {!product.inStock && <p className="text-[11px] font-medium text-[#B91C1C]">Out of stock</p>}
         {product.inStock && !shop.open && <p className="text-[11px] font-medium text-[#B91C1C]">Shop closed · opens {shop.opensAt}</p>}
       </div>
@@ -196,7 +199,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
         {term ? (
           <section aria-labelledby="results-heading" className="mt-5">
             <h2 id="results-heading" className="text-xl font-bold">{results?.length ?? 0} result{results?.length === 1 ? '' : 's'}<span className="font-normal text-muted-ink"> for &ldquo;{query.trim()}&rdquo;</span></h2>
-            {results?.length ? <ul className="mt-3 rounded-2xl border border-line bg-white px-3">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul> : <p className="mt-3 rounded-2xl border border-line bg-white p-5 text-center text-sm text-muted-ink">No products found. Try another word.</p>}
+            {results?.length ? <ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul> : <p className="mt-3 rounded-2xl border border-line bg-white p-5 text-center text-sm text-muted-ink">No products found. Try another word.</p>}
           </section>
         ) : (
           <>
@@ -224,7 +227,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
               </div>
             </section>
 
-            {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 rounded-2xl border border-line bg-white px-3">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
+            {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
 
             <section aria-labelledby="shops-heading" className="mt-8">
               <div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Your neighborhood</p><h2 id="shops-heading" className="mt-1 text-xl font-extrabold tracking-tight">Shops near you</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">View all</a></div>
@@ -330,7 +333,7 @@ export function StoreScreen({ shopId, onBack }: { shopId: string; onBack: () => 
             </button>
           ))}
         </div>
-        <ul className="mt-3 rounded-2xl border border-line bg-white px-3">
+        <ul className="mt-3 flex flex-col gap-2">
           {visible.map(p => (
             <ProductRow key={p.id} product={p} />
           ))}

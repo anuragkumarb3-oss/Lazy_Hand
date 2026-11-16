@@ -56,6 +56,7 @@ export type Product = {
   price: number
   category: CategoryId
   inStock: boolean
+  featured?: boolean
 }
 
 export const seedProducts: Product[] = [
@@ -77,6 +78,16 @@ export const seedProducts: Product[] = [
   { id: 'p16', shopId: 'sharma', name: 'Fresh Paneer', unit: '200 g', price: 90, category: 'dairy', inStock: true },
   { id: 'p17', shopId: 'sharma', name: 'Curd', unit: '400 g', price: 35, category: 'dairy', inStock: true },
   { id: 'p18', shopId: 'sharma', name: 'Kulfi Stick', unit: '1 pc', price: 25, category: 'icecream', inStock: true },
+  { id: 'p19', shopId: 'gupta', name: 'Premium Basmati Rice', unit: '1 kg', price: 149, category: 'staples', inStock: true, featured: true },
+  { id: 'p20', shopId: 'gupta', name: 'Raw Forest Honey', unit: '250 g', price: 129, category: 'staples', inStock: true },
+  { id: 'p21', shopId: 'gupta', name: 'Dark Chocolate Cookies', unit: '150 g', price: 85, category: 'bakery', inStock: true, featured: true },
+  { id: 'p22', shopId: 'gupta', name: 'Roasted Almonds', unit: '100 g', price: 110, category: 'snacks', inStock: true, featured: true },
+  { id: 'p23', shopId: 'raj', name: 'Cold-Pressed Mustard Oil', unit: '1 L', price: 189, category: 'staples', inStock: true },
+  { id: 'p24', shopId: 'raj', name: 'Green Grapes', unit: '500 g', price: 75, category: 'veg', inStock: true },
+  { id: 'p25', shopId: 'raj', name: 'Tender Coconut Water', unit: '200 ml', price: 35, category: 'drinks', inStock: true },
+  { id: 'p26', shopId: 'sharma', name: 'Creamy Mango Lassi', unit: '250 ml', price: 45, category: 'dairy', inStock: true },
+  { id: 'p27', shopId: 'sharma', name: 'Belgian Chocolate Ice Cream', unit: '500 ml', price: 175, category: 'icecream', inStock: true, featured: true },
+  { id: 'p28', shopId: 'sharma', name: 'Sourdough Multigrain Loaf', unit: '400 g', price: 95, category: 'bakery', inStock: true },
 ]
 
 export type OrderStatus = 'placed' | 'accepted' | 'ready' | 'picked' | 'delivered' | 'rejected'

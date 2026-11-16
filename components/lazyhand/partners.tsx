@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react'
 import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
+import { billFor, categories, categoryById, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
 
@@ -228,8 +228,8 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
                   <ProductTile category={p.category} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-ink">{p.unit} · {rupee(p.price)}</p>
-                    <p className={cn('mt-1 text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'Visible in catalog' : 'Out of stock'}</p>
+                    <p className="text-xs text-muted-ink">{categoryById[p.category].short} · {p.unit} · {rupee(p.price)}</p>
+                    <p className={cn('mt-1 text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'Visible in catalog' : 'Out of stock'}{p.featured ? ' · Neighborhood favorite' : ''}</p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     <Toggle checked={p.inStock} onChange={() => toggleStock(p.id)} label={`${p.name} in stock`} />
