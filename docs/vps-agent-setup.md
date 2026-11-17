@@ -38,7 +38,7 @@ Ask only for what is missing; do not ask for passwords, private keys, API secret
 4. **Existing bridge:** ask where the existing bridge repository/process is, if one exists, and whether the agent may inspect it. If no bridge exists, ask the owner to choose the official API or explicitly approve a Baileys prototype. Do not invent a URL or overwrite an unknown process.
 5. **Supabase production project:** confirm which project is production, whether the empty public schema seen in this audit is the intended project, and whether the agent is authorized to prepare/apply reviewed schema migrations. Confirm a recent restorable backup exists before any production DDL or data changes.
 6. **Admin access:** identify the intended admin account(s) by email/user ID and confirm who can grant the trusted Supabase `app_metadata.role = 'admin'`. Do not grant admin through `user_metadata`, a client field, profile form, or public signup.
-7. **Business rules:** confirm launch location/coverage, seller/rider approval process, COD/payment plan, delivery pricing, cancellation/refund rules, and whether the seeded shops/products are to be removed or replaced with real catalog records.
+7. **Business rules:** confirm launch location/coverage, seller/rider approval process, COD/payment plan, delivery pricing, cancellation/refund rules, and whether the seeded shops/products are to be removed or replaced with real catalog records. For payment tracking, confirm whether receipts arrive in a dedicated Gmail inbox, the trusted sender(s), how amount/reference/order are matched, and who owns seller payouts and the promised settlement schedule. Do not treat an email or customer screenshot alone as proof of payment.
 8. **Operations:** confirm backup retention, monitoring/alert destination, maintenance window, rollback owner, log retention, and who responds if OTP/WhatsApp delivery fails.
 9. **Legal/privacy review:** confirm approved privacy notice and consent text, data-retention/deletion policy, and business approval for handling phone numbers and location. Do not collect identity/bank documents until the storage, access, consent, retention, and incident-response design is approved.
 
@@ -61,6 +61,7 @@ If a required answer or secure access method is unavailable, report the blocker 
 - Keep service-role credentials server-only. Prefer the user's authenticated Supabase session plus RLS for normal operations. Do not put service-role keys in `NEXT_PUBLIC_*` variables or ship them in the client bundle.
 - Replace seeded shop/product/order data with approved real data before opening orders. Ensure the server computes prices and order totals from the authoritative catalog, validates stock and shop status transactionally, prevents overselling, and records order state changes server-side.
 - Add rate limits and abuse controls for OTP/signup/order endpoints; verify phone provider configuration, OTP expiry, resend limits, and recovery. Keep payment and fulfillment status changes server-authoritative.
+- Before enabling QR/UPI checkout, approve a payment verification design. If using Gmail receipts, authorize a dedicated inbox with least-privilege read access; validate trusted sender and receipt identifiers, exact amount, order association, duplicate/replayed messages, and refunds. A Gmail notification is not a settlement guarantee; never mark an order paid from a customer claim alone. Define the seller payout provider and schedule separately, and do not promise an 8 PM credit until it is actually supported and tested.
 - Keep user-specific API responses non-cacheable. Require a same-origin/CSRF strategy for cookie-authenticated writes and validate inputs on the server.
 
 ### Phase 3 — VPS WhatsApp adapter (only if approved)
@@ -102,6 +103,7 @@ Do not report “ready” until all applicable items pass and evidence is record
 - [ ] Supabase OTP provider delivers and verifies real codes; resend limits, failures, and recovery are tested.
 - [ ] Profile, catalog, seller-application, order create/read/status, inventory, and admin workflows use real persistence and authoritative server-side permissions—not demo-only controls.
 - [ ] Order prices/fees are server-calculated; stock and status transitions are safe under concurrent requests; retries are idempotent.
+- [ ] If digital payments are enabled: payment confirmation comes from a trusted, server-verified source with exact amount/order matching and replay protection; refunds and seller settlement schedule are defined and tested. Gmail receipts alone must not be described as guaranteed settlement.
 - [ ] Cookie-authenticated mutations have CSRF/origin protection; private responses are not cached; rate limits are enabled.
 - [ ] `pnpm install --frozen-lockfile`, `pnpm typecheck`, and `pnpm build` pass with no ignored TypeScript/build errors.
 - [ ] Backups are encrypted and a restore has been tested; monitoring, alerting, log redaction, and rollback are documented.
