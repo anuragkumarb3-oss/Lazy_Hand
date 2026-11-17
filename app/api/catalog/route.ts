@@ -6,16 +6,16 @@ export const dynamic = 'force-dynamic'
 
 const demoProductByCategory: Record<string, { name: string; unit: string; price: number; image?: string }> = {
   'Chips & Wafers': { name: 'Golden Crunch Potato Chips', unit: '100 g', price: 35, image: '/images/demo-potato-chips.png' },
-  'Bhujia & Mixtures': { name: 'Classic Masala Bhujia', unit: '200 g', price: 55 },
-  'Namkeen Snacks': { name: 'Roasted Masala Peanuts', unit: '150 g', price: 45 },
-  Biscuits: { name: 'Butter Crunch Biscuits', unit: '250 g', price: 40 },
-  'Soft Drinks & Beverages': { name: 'Sparkling Lemon Soda', unit: '300 ml', price: 30 },
+  'Bhujia & Mixtures': { name: 'Classic Masala Bhujia', unit: '200 g', price: 55, image: '/images/demo-potato-chips.png' },
+  'Namkeen Snacks': { name: 'Roasted Masala Peanuts', unit: '150 g', price: 45, image: '/images/demo-potato-chips.png' },
+  Biscuits: { name: 'Butter Crunch Biscuits', unit: '250 g', price: 40, image: '/images/demo-butter-biscuits.png' },
+  'Soft Drinks & Beverages': { name: 'Sparkling Lemon Soda', unit: '300 ml', price: 30, image: '/images/demo-lemon-soda.png' },
   'Dairy Products': { name: 'Farm Fresh Milk', unit: '500 ml', price: 32, image: '/images/demo-fresh-milk.png' },
   Groceries: { name: 'Long-Grain Basmati Rice', unit: '1 kg', price: 145, image: '/images/demo-basmati-rice.png' },
-  'Daily Essentials': { name: 'Gentle Hand Wash', unit: '250 ml', price: 75 },
-  'Fruits & Vegetables': { name: 'Fresh Red Apples', unit: '500 g', price: 90 },
-  'Ice Creams': { name: 'Belgian Chocolate Scoop', unit: '100 ml', price: 65 },
-  'Household Products': { name: 'Lemon Dishwash Liquid', unit: '500 ml', price: 85 },
+  'Daily Essentials': { name: 'Gentle Hand Wash', unit: '250 ml', price: 75, image: '/images/demo-handwash.png' },
+  'Fruits & Vegetables': { name: 'Fresh Red Apples', unit: '500 g', price: 90, image: '/images/demo-fresh-apples.png' },
+  'Ice Creams': { name: 'Belgian Chocolate Scoop', unit: '100 ml', price: 65, image: '/images/demo-chocolate-icecream.png' },
+  'Household Products': { name: 'Lemon Dishwash Liquid', unit: '500 ml', price: 85, image: '/images/demo-dishwash.png' },
   Pizza: { name: 'Garden Fresh Margherita Pizza', unit: 'Regular', price: 199, image: '/images/demo-margherita-pizza.png' },
   'Burgers & Sandwiches': { name: 'Classic Veggie Burger', unit: '1 pc', price: 129 },
   'Junk Food': { name: 'Crispy Loaded Fries', unit: '1 portion', price: 99 },
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
       .order('name'),
     supabase
       .from('profiles')
-      .select('id, shop_name, village, shop_timezone, shop_is_open_override, delivery_estimate_min, delivery_estimate_max')
+      .select('id, shop_name, village')
       .eq('role', 'shopkeeper'),
   ])
 
@@ -105,8 +105,8 @@ export async function GET(request: Request) {
     const shop = shopsById.get(product.owner_id)
     const status = shopAvailability(
       hoursByShop.get(product.owner_id) ?? [],
-      shop?.shop_timezone ?? 'Asia/Kolkata',
-      shop?.shop_is_open_override ?? null,
+      'Asia/Kolkata',
+      null,
     )
 
     return {
@@ -114,13 +114,14 @@ export async function GET(request: Request) {
       shop_name: shop?.shop_name ?? '',
       shop_open: status.isOpen,
       shop_opens_at: status.nextOpening,
-      delivery_estimate_min: shop?.delivery_estimate_min ?? null,
-      delivery_estimate_max: shop?.delivery_estimate_max ?? null,
+      delivery_estimate_min: null,
+      delivery_estimate_max: null,
       shop_timezone: status.timeZone,
     }
   })
 
-  const demoProducts = process.env.NODE_ENV !== 'production' && (profiles ?? []).length === 0
+  const previewEnvironment = process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV === 'preview'
+  const demoProducts = previewEnvironment && (profiles ?? []).length === 0
     ? (categories ?? []).flatMap(category => {
         const samples = category.name === 'Groceries'
           ? demoGroceryProducts
