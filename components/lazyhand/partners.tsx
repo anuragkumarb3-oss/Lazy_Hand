@@ -1,21 +1,28 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
-import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import useSWR from 'swr'
+import { Banknote, Bike, Calculator, Check, ClipboardList, IndianRupee, MapPin, MessageCircle, Package, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
-import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
+import { BottomNav, PrimaryButton, SecondaryButton, StatusPill, Toggle } from './ui'
 
-const MANAGED_SHOP_ID = 'gupta'
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+type ShopHour = { day_of_week: number; opens_at: string | null; closes_at: string | null; is_closed: boolean }
+type ShopHourDraft = ShopHour
+type ShopSettings = { shop_timezone: string; shop_is_open_override: boolean | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null }
+type ShopSettingsResponse = { hours: ShopHour[]; settings: ShopSettings }
+const defaultShopSettings: ShopSettings = { shop_timezone: 'Asia/Kolkata', shop_is_open_override: null, delivery_estimate_min: null, delivery_estimate_max: null }
 
 function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: string; right?: React.ReactNode }) {
   return (
-    <header className="bg-gradient-to-br from-brand to-[#FFA94D] px-4 pb-5 pt-[max(env(safe-area-inset-top),18px)] text-white">
-      <div className="mx-auto flex max-w-md items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium text-white/70">{eyebrow}</p>
-          <h1 className="truncate text-lg font-bold">{title}</h1>
+    <header className="border-b border-line bg-white px-4 pb-4 pt-[max(env(safe-area-inset-top),16px)] sm:px-6">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+        <div className="min-w-0 border-l-[3px] border-brand pl-3">
+          <p className="text-xs font-semibold text-brand-deep">{eyebrow}</p>
+          <h1 className="truncate text-lg font-bold tracking-tight text-ink sm:text-xl">{title}</h1>
         </div>
         {right}
       </div>
@@ -25,9 +32,9 @@ function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: stri
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-3">
-      <dt className="text-[11px] text-muted-ink">{label}</dt>
-      <dd className="text-lg font-bold">{value}</dd>
+    <div className="min-w-0 rounded-2xl border border-line bg-white p-3.5 sm:p-4">
+      <dt className="text-xs font-medium leading-5 text-muted-ink">{label}</dt>
+      <dd className="mt-1 truncate text-xl font-bold tracking-tight tabular-nums text-ink sm:text-2xl">{value}</dd>
     </div>
   )
 }
@@ -65,196 +72,155 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
   )
 }
 
-export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, products, shopById, toggleShopOpen, toggleStock, addProduct, updateProduct, setOrderStatus } = useLazyHand()
-  const [tab, setTab] = useState<'orders' | 'products' | 'calculator' | 'account'>('products')
-  const [showProductForm, setShowProductForm] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const shop = shopById[MANAGED_SHOP_ID]
-  const shopOrders = orders.filter(o => o.shopId === MANAGED_SHOP_ID && o.placedAt === 'Today')
-  const incoming = shopOrders.filter(o => o.status === 'placed')
-  const packing = shopOrders.filter(o => o.status === 'accepted')
-  const handedOver = shopOrders.filter(o => ['ready', 'picked', 'delivered'].includes(o.status))
-  const revenue = shopOrders.filter(o => o.status !== 'rejected').reduce((s, o) => s + o.itemTotal, 0)
-  const myProducts = products.filter(p => p.shopId === MANAGED_SHOP_ID)
-  const inStockCount = myProducts.filter(product => product.inStock).length
-  const openProductForm = () => {
-    setTab('products')
-    setEditingProduct(null)
-    setShowProductForm(true)
+export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMode?: boolean }) {
+  const { profile } = useLazyHand()
+  const [tab, setTab] = useState<'orders' | 'products' | 'earnings' | 'account'>('orders')
+  const [productQuery, setProductQuery] = useState('')
+  const [productAvailability, setProductAvailability] = useState('all')
+  const [productCategory, setProductCategory] = useState('all')
+  const [showProfitCalculator, setShowProfitCalculator] = useState(false)
+  const [earningsRange, setEarningsRange] = useState<'today' | '7d' | '30d'>('7d')
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all')
+  const [orderDateFilter, setOrderDateFilter] = useState('all')
+  const [actionError, setActionError] = useState('')
+  const { data: sellerData, error: sellerDataError, isLoading: sellerDataLoading, mutate: refreshSellerData } = useSWR('/api/seller', async () => {
+    const response = await fetch('/api/seller')
+    if (!response.ok) throw new Error('Seller workspace could not be loaded.')
+    return response.json() as Promise<{ products: Array<{ id: string; category_id: string; name: string; unit: string; price: number | string; stock: number; is_available: boolean; low_stock_threshold: number; images: string[] }>; categories: Array<{ id: string; name: string }>; orders: Array<{ id: string; lines: Order['lines']; item_total: number | string; delivery_fee: number | string; platform_fee: number | string; seller_delivery_deduction: number | string; seller_payout: number | string; total: number | string; payment: 'cod'; status: Order['status']; customer_name: string; address: string; rider_name: string | null; placed_at: string }> }>
+  })
+  const shopOrders: Order[] = (sellerData?.orders ?? []).map(order => ({
+    id: order.id, shopId: '', lines: order.lines, itemTotal: Number(order.item_total), deliveryFee: Number(order.delivery_fee),
+    platformFee: Number(order.platform_fee), deliveryDistanceKm: 0, riderPayout: 0,
+    sellerDeliveryDeduction: Number(order.seller_delivery_deduction), sellerPayout: Number(order.seller_payout),
+    total: Number(order.total), payment: order.payment, status: order.status,
+    placedAt: order.placed_at, customerName: order.customer_name,
+    address: order.address, riderName: order.rider_name ?? undefined,
+  }))
+  const incoming = shopOrders.filter(order => order.status === 'placed')
+  const packing = shopOrders.filter(order => order.status === 'accepted')
+  const ready = shopOrders.filter(order => order.status === 'ready')
+  const outForDelivery = shopOrders.filter(order => order.status === 'picked')
+  const completed = shopOrders.filter(order => order.status === 'delivered')
+  const visibleOrders = shopOrders.filter(order => {
+    const placed = new Date(order.placedAt)
+    const dateMatches = orderDateFilter === 'all' || (orderDateFilter === 'today' && placed.toDateString() === new Date().toDateString()) || (orderDateFilter === '7d' && placed >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)) || (orderDateFilter === '30d' && placed >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+    return dateMatches && (orderStatusFilter === 'all' || order.status === orderStatusFilter)
+  })
+  const revenue = shopOrders.filter(order => order.status !== 'rejected').reduce((sum, order) => sum + order.itemTotal, 0)
+  const myProducts = sellerData?.products ?? []
+  const visibleProducts = myProducts.filter(product => {
+    const statusMatches = productAvailability === 'all' || (productAvailability === 'in-stock' && product.stock > 0 && product.is_available) || (productAvailability === 'low-stock' && product.stock > 0 && product.stock <= product.low_stock_threshold) || (productAvailability === 'unavailable' && (!product.is_available || product.stock === 0))
+    return product.name.toLowerCase().includes(productQuery.toLowerCase()) && statusMatches && (productCategory === 'all' || product.category_id === productCategory)
+  })
+  const inStockCount = myProducts.filter(product => product.stock > 0 && product.is_available).length
+  const rangeStart = new Date()
+  rangeStart.setHours(0, 0, 0, 0)
+  if (earningsRange === '7d') rangeStart.setDate(rangeStart.getDate() - 6)
+  if (earningsRange === '30d') rangeStart.setDate(rangeStart.getDate() - 29)
+  const periodOrders = (sellerData?.orders ?? []).filter(order => new Date(order.placed_at) >= rangeStart && order.status !== 'rejected')
+  const salesByDay = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - (6 - index))
+    const total = (sellerData?.orders ?? []).filter(order => new Date(order.placed_at).toDateString() === date.toDateString() && order.status !== 'rejected').reduce((sum, order) => sum + Number(order.item_total), 0)
+    return { key: date.toISOString(), label: date.toLocaleDateString('en-IN', { weekday: 'short' }), total }
+  })
+  const updateOrderStatus = async (orderId: string, status: Order['status']) => {
+    setActionError('')
+    const response = await fetch('/api/seller', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, status }) })
+    if (!response.ok) {
+      setActionError('Order status could not be updated. Refresh and try again.')
+      return
+    }
+    await refreshSellerData()
   }
 
   return (
-    <div className="pb-24">
-      <PartnerHeader
-        eyebrow="Shopkeeper · sample shop"
-        title={shop.name}
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold">{shop.open ? 'Open' : 'Closed'}</span>
-            <Toggle checked={shop.open} onChange={() => toggleShopOpen(shop.id)} label="Shop open for orders" />
-          </div>
-        }
-      />
-      <PreviewNote detail="Shop status pauses customer orders; accept new orders, pack them, and hand them off to a rider." />
-      <div className="mx-auto max-w-md px-4">
-        {tab === 'orders' && (
-          <section aria-label="Shop visibility" className="mt-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]')}>
-                  {shop.open ? <Eye className="size-5" aria-hidden="true" /> : <Store className="size-5" aria-hidden="true" />}
-                </span>
-                <div>
-                  <p className="text-sm font-bold">{shop.open ? 'Your shop is visible' : 'Your shop is hidden from orders'}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-ink">{shop.open ? `${inStockCount} products are available for customers to browse.` : 'Open your shop to let nearby customers place orders.'}</p>
-                </div>
-              </div>
-              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold', shop.open ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]')}>{shop.open ? 'LIVE' : 'CLOSED'}</span>
-            </div>
-            <button type="button" onClick={openProductForm} className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand text-sm font-semibold text-white transition hover:bg-brand-deep">
-              <Plus className="size-4" aria-hidden="true" /> Add a product
-            </button>
+    <div className="min-h-svh bg-[#F7F8FA] pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-ink">
+      <PartnerHeader eyebrow="Seller workspace" title={profile.shopName || 'Your shop'} right={<span className="rounded-full border border-line bg-[#F7F8FA] px-3 py-1.5 text-xs font-semibold text-muted-ink">Shop account</span>} />
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
+        {tab === 'orders' && <>
+          <section className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-muted-ink">Orders</p>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">Your shop, at a glance</h2>
           </section>
-        )}
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="New orders" value={String(incoming.length)} />
+            <Stat label="Today’s orders" value={String(shopOrders.filter(order => new Date(order.placedAt).toDateString() === new Date().toDateString()).length)} />
+            <Stat label="Sales in loaded orders" value={rupee(revenue)} />
+            <Stat label="In progress" value={String(incoming.length + packing.length + ready.length + outForDelivery.length)} />
+          </dl>
+          {sellerDataError && <p role="alert" className="rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">Seller data could not load. Refresh to try again.</p>}
+          <section aria-labelledby="quick-actions-heading">
+            <h2 id="quick-actions-heading" className="mb-3 text-lg font-bold">Quick actions</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <a href="/seller/catalog" className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-sm font-semibold"><Plus className="size-5 text-brand" aria-hidden="true" />Add product</a>
+              <button type="button" onClick={() => setTab('products')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Package className="size-5 text-brand" aria-hidden="true" />Manage products</button>
+              <button type="button" onClick={() => setTab('earnings')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Banknote className="size-5 text-brand" aria-hidden="true" />View earnings</button>
+              <button type="button" onClick={() => setTab('account')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Store className="size-5 text-brand" aria-hidden="true" />Shop settings</button>
+            </div>
+          </section>
+        </>}
+
         {tab === 'orders' && (
           <>
-            <dl className="mt-4 grid grid-cols-3 gap-2">
-              <Stat label="New" value={String(incoming.length)} />
-              <Stat label="Today" value={String(shopOrders.length)} />
-              <Stat label="Sales" value={rupee(revenue)} />
-            </dl>
-            {!shop.open && (
-              <p className="mt-3 rounded-xl bg-[#FEF2F2] p-3 text-xs text-[#991B1B]">Your shop is closed. Customers can see it but can&apos;t order until you switch it on.</p>
-            )}
-            <section aria-labelledby="new-orders" className="mt-5">
-              <h2 id="new-orders" className="text-sm font-bold">New orders</h2>
-              <div className="mt-2 flex flex-col gap-2.5">
-                {incoming.length === 0 && <Empty Icon={ClipboardList} title="No new orders" detail="Accept or decline a demo order. Accepted orders move to Packing; no customer is notified." />}
-                {incoming.map(order => (
-                  <article key={order.id} className="rounded-2xl border-2 border-brand bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">#{order.id}</p>
-                      <p className="text-sm font-bold">{rupee(order.itemTotal)}</p>
-                    </div>
-                    <p className="text-xs text-muted-ink">
-                      {order.customerName} · Cash on delivery
-                    </p>
-                    <OrderLines order={order} />
-                    <p className="mt-3 rounded-xl bg-[#FFF8F1] px-3 py-2 text-xs leading-5 text-brand-deep">
-                      Customer pays {rupee(order.total)} · seller receives {rupee(order.itemTotal)} · rider payout {rupee(order.riderPayout)} · LazyHand keeps {rupee(order.deliveryFee - order.riderPayout + order.platformFee)}
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <SecondaryButton onClick={() => setOrderStatus(order.id, 'rejected')} className="h-10 text-xs text-[#B91C1C]">
-                        <X className="size-4" aria-hidden="true" /> Decline
-                      </SecondaryButton>
-                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'accepted')} className="h-10 text-xs">
-                        <Check className="size-4" aria-hidden="true" /> Accept
-                      </PrimaryButton>
-                    </div>
-                  </article>
-                ))}
+            <section aria-labelledby="order-management-heading">
+              <div className="mb-3"><h2 id="order-management-heading" className="text-lg font-bold">Order management</h2><p className="mt-0.5 text-sm text-muted-ink">Orders retrieved from your shop account.</p></div>
+              <div className="mb-3 grid grid-cols-2 gap-2"><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Status<select value={orderStatusFilter} onChange={event => setOrderStatusFilter(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All statuses</option>{['placed', 'accepted', 'ready', 'picked', 'delivered', 'rejected'].map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Date<select value={orderDateFilter} onChange={event => setOrderDateFilter(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All dates</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
+              {actionError && <p role="alert" className="mb-3 rounded-xl bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">{actionError}</p>}
+              {sellerDataLoading ? <p className="rounded-xl border border-line bg-white p-4 text-sm text-muted-ink">Loading your orders…</p> : null}
+              {sellerDataError ? <Empty Icon={ClipboardList} title="Orders could not be loaded" detail="Check your connection and refresh this page." /> : null}
+              {!sellerDataLoading && !sellerDataError && visibleOrders.length === 0 ? <Empty Icon={ClipboardList} title={shopOrders.length ? 'No matching orders' : 'No orders yet'} detail={shopOrders.length ? 'Change the status or date filters to see more orders.' : 'New customer orders for your shop will appear here.'} /> : null}
+              <div className="flex flex-col gap-3">
+                {visibleOrders.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold">Order #{order.id}</p><p className="mt-1 text-xs text-muted-ink">{order.customerName} · {order.payment.toUpperCase()} · {new Date(order.placedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="text-right"><StatusPill tone={order.status === 'placed' ? 'warn' : order.status === 'delivered' ? 'open' : 'info'}>{order.status}</StatusPill><p className="mt-2 text-base font-bold">{rupee(order.itemTotal)}</p></div></div>
+                  <OrderLines order={order} />
+                  <p className="mt-3 text-xs leading-5 text-muted-ink">Payment status: COD · {order.status === 'delivered' ? 'completed' : 'collection status is recorded with delivery'}</p>
+                  {order.status === 'placed' && <div className="mt-3 flex gap-2"><SecondaryButton onClick={() => void updateOrderStatus(order.id, 'rejected')} className="h-11 text-sm text-[#B91F1F]">Reject</SecondaryButton><PrimaryButton onClick={() => void updateOrderStatus(order.id, 'accepted')} className="h-11 text-sm">Accept order</PrimaryButton></div>}
+                  {order.status === 'accepted' && <PrimaryButton onClick={() => void updateOrderStatus(order.id, 'ready')} className="mt-3 h-11">Mark ready for pickup</PrimaryButton>}
+                </article>)}
               </div>
             </section>
-            <section aria-labelledby="packing" className="mt-5">
-              <h2 id="packing" className="text-sm font-bold">Packing</h2>
-              <div className="mt-2 flex flex-col gap-2.5">
-                {packing.length === 0 && <p className="text-xs text-muted-ink">Accepted orders wait here until you pack them.</p>}
-                {packing.map(order => (
-                  <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">#{order.id}</p>
-                      <StatusPill tone="warn">Packing</StatusPill>
-                    </div>
-                    <OrderLines order={order} />
-                    <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready')} className="mt-3 h-10 text-xs">
-                      <Package className="size-4" aria-hidden="true" /> Packed · call rider
-                    </PrimaryButton>
-                  </article>
-                ))}
-              </div>
-            </section>
-            {handedOver.length > 0 && (
-              <section aria-labelledby="done" className="mt-5">
-                <h2 id="done" className="text-sm font-bold">Handed to rider</h2>
-                <ul className="mt-2 flex flex-col gap-2">
-                  {handedOver.map(order => (
-                    <li key={order.id} className="flex items-center justify-between rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
-                      <span>#{order.id}</span>
-                      <StatusPill tone={order.status === 'delivered' ? 'open' : 'info'}>{order.status === 'ready' ? 'Awaiting rider' : order.status === 'picked' ? 'On the way' : 'Delivered'}</StatusPill>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
           </>
         )}
 
-        {tab === 'calculator' && <SmartProfitCalculator />}
-
         {tab === 'products' && (
-          <section aria-labelledby="products-heading" className="mt-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 id="products-heading" className="text-lg font-bold">Products & inventory</h2>
-                <p className="mt-1 text-xs leading-5 text-muted-ink">Customers can see in-stock items while your shop is open.</p>
-                <a href="/seller/catalog" className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-line bg-white px-3 text-xs font-semibold text-brand-deep">Manage live catalog</a>
-              </div>
-              <button type="button" onClick={() => { setEditingProduct(null); setShowProductForm(true) }} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-deep">
-                <Plus className="size-4" aria-hidden="true" /> Add product
-              </button>
-            </div>
-            <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#FFF8F1] px-3 py-2.5 text-xs text-brand-deep">
-              <Eye className="size-4 shrink-0" aria-hidden="true" />
-              <span><strong>{inStockCount} visible</strong> to customers · {myProducts.length - inStockCount} out of stock</span>
-            </div>
-            <p role="status" className="mt-2 text-[11px] text-muted-ink">Preview only: product changes update the sample catalog immediately and reset when you leave.</p>
-            {showProductForm && (
-              <ProductEditor
-                key={editingProduct?.id ?? 'new-product'}
-                initial={editingProduct ?? undefined}
-                onCancel={() => { setShowProductForm(false); setEditingProduct(null) }}
-                onSave={product => {
-                  if (editingProduct) updateProduct({ ...editingProduct, ...product })
-                  else addProduct(product)
-                  setShowProductForm(false)
-                  setEditingProduct(null)
-                }}
-              />
-            )}
-            <ul className="mt-3 flex flex-col gap-2">
-              {myProducts.map(p => (
-                <li key={p.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3">
-                  <ProductTile category={p.category} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-ink">{p.unit} · {rupee(p.price)}</p>
-                    <p className={cn('mt-1 text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'Visible in catalog' : 'Out of stock'}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <Toggle checked={p.inStock} onChange={() => toggleStock(p.id)} label={`${p.name} in stock`} />
-                    <button type="button" onClick={() => { setEditingProduct(p); setShowProductForm(true) }} aria-label={`Edit ${p.name}`} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-brand-deep hover:bg-[#FFF8F1]">
-                      <Pencil className="size-3.5" aria-hidden="true" /> Edit
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <section aria-labelledby="products-heading" className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="products-heading" className="text-xl font-bold">Products & inventory</h2><p className="mt-1 text-sm text-muted-ink">Manage real listings and stock for {profile.shopName || 'your shop'}.</p></div><a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Add product</a></div>
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Total products" value={String(myProducts.length)} /><Stat label="In stock" value={String(inStockCount)} /><Stat label="Low stock" value={String(myProducts.filter(product => product.stock > 0 && product.stock <= product.low_stock_threshold).length)} /><Stat label="Unavailable" value={String(myProducts.filter(product => !product.is_available || product.stock === 0).length)} /></dl>
+            <label className="flex h-12 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><Search className="size-4 text-muted-ink" aria-hidden="true" /><span className="sr-only">Search your products</span><input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="Search products" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-ink" /></label>
+            <div className="grid grid-cols-2 gap-2"><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Availability<select value={productAvailability} onChange={event => setProductAvailability(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All products</option><option value="in-stock">In stock</option><option value="low-stock">Low stock</option><option value="unavailable">Unavailable</option></select></label><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Category<select value={productCategory} onChange={event => setProductCategory(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All categories</option>{sellerData?.categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
+            {sellerDataLoading ? <p className="rounded-xl border border-line bg-white p-4 text-sm text-muted-ink">Loading your catalog…</p> : null}
+            {sellerDataError ? <Empty Icon={Package} title="Catalog could not be loaded" detail="Check your connection and refresh this page." /> : null}
+            {!sellerDataLoading && !sellerDataError && visibleProducts.length === 0 ? <Empty Icon={Package} title={myProducts.length ? 'No matching products' : 'Your catalog is empty'} detail={myProducts.length ? 'Try another search.' : 'Add your first product to start building your catalog.'} /> : null}
+            <ul className="grid gap-3 sm:grid-cols-2">{visibleProducts.map(product => {
+              const categoryName = sellerData?.categories.find(category => category.id === product.category_id)?.name ?? 'Uncategorized'
+              const status = !product.is_available || product.stock === 0 ? 'Unavailable' : product.stock <= 5 ? 'Low stock' : 'In stock'
+              return <li key={product.id} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-white p-3.5">
+                {product.images?.[0] ? <img src={product.images[0]} alt={product.name} className="size-16 shrink-0 rounded-xl object-cover" /> : <span className="grid size-16 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-brand"><Package className="size-6" aria-hidden="true" /></span>}
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><p className="mt-1 truncate text-xs text-muted-ink">{categoryName}{product.unit ? ` · ${product.unit}` : ''}</p><p className="mt-1 text-base font-bold">{rupee(Number(product.price))}</p><p className={cn('mt-1 text-xs font-semibold', status === 'In stock' ? 'text-[#15803D]' : status === 'Low stock' ? 'text-[#A16207]' : 'text-[#B91F1F]')}>{status} · {product.stock} units</p></div>
+                <a href="/seller/catalog" className="inline-flex min-h-10 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-brand-deep hover:bg-[#FCE8E8]">Edit</a>
+              </li>
+            })}</ul>
+          </section>
+        )}
+
+        {tab === 'earnings' && (
+          <section className="flex flex-col gap-4" aria-labelledby="earnings-heading">
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="earnings-heading" className="text-xl font-bold">Earnings</h2><p className="mt-1 text-sm text-muted-ink">Actual order totals, not profit estimates.</p></div><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Period<select value={earningsRange} onChange={event => setEarningsRange(event.target.value as 'today' | '7d' | '30d')} className="h-10 rounded-lg border border-line bg-white px-3 text-sm text-ink"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
+            <dl className="grid grid-cols-2 gap-3"><Stat label="Gross sales" value={rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))} /><Stat label="Seller earnings" value={rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))} /><Stat label="Platform fees" value={rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))} /><Stat label="Settlements" value="Not configured" /></dl>
+            <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="sales-chart-heading"><h3 id="sales-chart-heading" className="text-sm font-bold">Daily gross sales</h3><div className="mt-4 flex h-36 items-end gap-2" role="img" aria-label="Daily gross sales chart for the selected period">{salesByDay.map(day => <div key={day.key} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1 text-center"><span className="truncate text-[10px] font-medium text-muted-ink">{day.total ? rupee(day.total) : '—'}</span><div className="min-h-1 rounded-t-md bg-brand" style={{ height: `${Math.max(4, (day.total / Math.max(1, ...salesByDay.map(item => item.total))) * 80)}%` }} /><span className="text-[10px] text-muted-ink">{day.label}</span></div>)}</div></section>
+            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Order financial breakdown</h3><dl className="mt-3 flex flex-col gap-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-muted-ink">Gross product sales</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fees recorded</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery deductions</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_delivery_deduction), 0))}</dd></div><div className="flex justify-between gap-3 border-t border-line pt-3"><dt className="font-semibold">Net seller earnings recorded</dt><dd className="font-bold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))}</dd></div><div className="text-xs leading-5 text-muted-ink">Discounts, refunds and adjustments are not recorded in the current order schema; they are excluded. Platform fees are order fees, not seller commission.</div></dl></section>
+            <section className="rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4"><h3 className="text-sm font-bold text-[#9A3412]">Settlement history not configured</h3><p className="mt-1 text-sm leading-5 text-[#9A3412]">No payout ledger or bank settlement records are available in this workspace, so settled and pending amounts cannot be verified. Connect and verify seller bank details and enable the settlement ledger before showing payouts.</p></section>
+            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Recent orders</h3>{periodOrders.length ? <ul className="mt-2 divide-y divide-line">{periodOrders.slice(0, 8).map(order => <li key={order.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="min-w-0 truncate">#{order.id} · {order.status}</span><strong>{rupee(Number(order.seller_payout))}</strong></li>)}</ul> : <p className="mt-2 text-sm text-muted-ink">No completed financial activity for this period.</p>}</section>
+            <button type="button" onClick={() => setShowProfitCalculator(value => !value)} aria-expanded={showProfitCalculator} className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 text-sm font-semibold"><span className="flex items-center gap-2"><Calculator className="size-4 text-brand" aria-hidden="true" /> Product profit calculator</span><span className="text-xs text-muted-ink">{showProfitCalculator ? 'Hide' : 'Show'}</span></button>
+            {showProfitCalculator && <SmartProfitCalculator />}
           </section>
         )}
 
         {tab === 'account' && <PartnerAccount role="Shopkeeper" onExit={onExit} />}
-      </div>
-      <BottomNav
-        items={[
-          { key: 'orders', label: 'Orders', Icon: ClipboardList, badge: incoming.length || undefined },
-          { key: 'products', label: 'Products', Icon: Package },
-          { key: 'calculator', label: 'Profit', Icon: Calculator },
-          { key: 'account', label: 'Account', Icon: UserRound },
-        ]}
-        active={tab}
-        onSelect={setTab}
-      />
+      </main>
+      <BottomNav wide items={[{ key: 'orders', label: 'Orders', Icon: ClipboardList }, { key: 'products', label: 'Products', Icon: Package }, { key: 'earnings', label: 'Earnings', Icon: Banknote }, { key: 'account', label: 'Account', Icon: UserRound }]} active={tab} onSelect={setTab} />
     </div>
   )
 }
@@ -269,8 +235,8 @@ function SmartProfitCalculator() {
   const cost = Math.max(0, Number(buyingCost) || 0)
   const productProfit = sale - cost
   const bill = billFor(sale, distanceKm, shopSelfDelivers)
-  const sellerTakeHome = productProfit
-  const deliveryContribution = bill.deliveryFee - bill.riderPayout
+  const sellerTakeHome = productProfit - bill.sellerDeliveryDeduction
+  const deliveryContribution = bill.deliveryFee + bill.sellerDeliveryDeduction - bill.riderPayout
   const lazyHandRevenue = deliveryContribution + bill.platformFee
   const riderTransfer = Math.max(0, lazyHandRevenue)
   const marginPercent = sale > 0 ? (sellerTakeHome / sale) * 100 : 0
@@ -324,6 +290,7 @@ function SmartProfitCalculator() {
         </div>
         <dl className="mt-3 flex flex-col gap-2.5 text-sm">
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Product profit</dt><dd className="font-semibold">{rupee(productProfit)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery contribution</dt><dd className="font-semibold">−{rupee(bill.sellerDeliveryDeduction)}</dd></div>
           <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2.5 font-bold"><dt>Seller take-home</dt><dd>{rupee(sellerTakeHome)} <span className="text-xs font-medium text-muted-ink">({marginPercent.toFixed(1)}%)</span></dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Customer pays</dt><dd className="font-semibold">{rupee(bill.total)}{shopSelfDelivers && <span className="text-xs font-normal text-muted-ink"> · free delivery</span>}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee</dt><dd className="font-semibold">{rupee(bill.platformFee)}</dd></div>
@@ -494,13 +461,16 @@ function ProductEditor({ initial, onSave, onCancel }: { initial?: Product; onSav
 }
 
 export function RiderDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, shopById, profile, setOrderStatus } = useLazyHand()
+  const { orders, shopById, profile, setOrderStatus, verifyOrderOtp, confirmOrderPayment, remitOrderToSeller } = useLazyHand()
   const [tab, setTab] = useState<'trips' | 'earnings' | 'account'>('trips')
   const [online, setOnline] = useState(true)
+  const [handoffCode, setHandoffCode] = useState('')
+  const [handoffError, setHandoffError] = useState('')
   const riderName = profile.role === 'rider' && profile.name ? profile.name : 'Sunil (you)'
   const available = orders.filter(o => o.status === 'ready' && !o.riderName)
   const active = orders.filter(o => o.riderName === riderName && ['ready', 'picked'].includes(o.status))
   const completed = orders.filter(o => o.riderName === riderName && o.status === 'delivered')
+  const pendingSellerDeposits = completed.filter(order => order.paymentConfirmed && !order.cashRemittedToSeller)
   const totalEarned = completed.reduce((total, order) => total + order.riderPayout, 0)
   const averagePayout = completed.length ? totalEarned / completed.length : deliverySlabFor(DEFAULT_DELIVERY_DISTANCE_KM).riderPayout
 
@@ -551,15 +521,45 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                       </span>
                     </li>
                   </ol>
-                  {order.payment === 'cod' && (
-                    <p className="mt-3 rounded-xl bg-[#FEF3C7] px-3 py-2 text-xs font-medium text-[#92400E]">Collect {rupee(order.total)} cash at the door</p>
+                  {!picked ? (
+                    <div className="mt-3 rounded-xl bg-[#FFF8F1] p-3">
+                      <label htmlFor={`pickup-code-${order.id}`} className="text-xs font-semibold">Enter the pickup code from the seller</label>
+                      <input id={`pickup-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
+                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
+                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'pickup', handoffCode); setHandoffError(verified ? '' : 'That code does not match. Ask the seller to confirm the code.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify pickup code</PrimaryButton>
+                    </div>
+                  ) : !order.paymentConfirmed ? (
+                    <div className="mt-3 rounded-xl bg-[#FEF3C7] p-3 text-xs text-[#92400E]">
+                      <p className="font-semibold">Collect {rupee(order.total)} from the customer</p>
+                      <p className="mt-1 leading-5">This preview supports cash confirmation only. Never direct a customer to your personal QR or a third-party QR. An approved in-app payment provider must be connected before digital collection.</p>
+                      <PrimaryButton onClick={() => confirmOrderPayment(order.id)} className="mt-3 h-11">Confirm cash received</PrimaryButton>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl bg-[#F0FDF4] p-3">
+                      <p className="text-xs font-semibold text-[#166534]">Payment confirmed · ask the customer for their delivery code</p>
+                      <label htmlFor={`delivery-code-${order.id}`} className="mt-3 block text-xs font-semibold">Customer delivery code</label>
+                      <input id={`delivery-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
+                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
+                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'delivery', handoffCode); setHandoffError(verified ? '' : 'Payment must be confirmed and the delivery code must match.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify and complete delivery</PrimaryButton>
+                    </div>
                   )}
-                  <PrimaryButton onClick={() => setOrderStatus(order.id, picked ? 'delivered' : 'picked')} className="mt-3 h-11">
-                    {picked ? 'Mark delivered' : 'Picked up from shop'}
-                  </PrimaryButton>
                 </article>
               )
             })}
+
+            {pendingSellerDeposits.length > 0 && (
+              <section aria-labelledby="seller-remittance" className="mt-5 rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4">
+                <h2 id="seller-remittance" className="text-sm font-bold text-[#9A3412]">Settle with the seller before another trip</h2>
+                <p className="mt-1 text-xs leading-5 text-[#9A3412]">Return the order value collected for the seller. Your trip payout stays separate.</p>
+                {pendingSellerDeposits.map(order => (
+                  <div key={order.id} className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-xs">
+                    <span>#{order.id} · seller amount <strong>{rupee(order.itemTotal)}</strong></span>
+                    <button type="button" onClick={() => remitOrderToSeller(order.id)} className="min-h-10 rounded-lg bg-brand px-3 font-semibold text-white">Deposit returned</button>
+                  </div>
+                ))}
+                <p className="mt-2 text-[10px] leading-4 text-muted-ink">Demo confirmation only; no funds move or deposit is verified in this preview.</p>
+              </section>
+            )}
 
             <section aria-labelledby="available" className="mt-5">
               <h2 id="available" className="text-sm font-bold">Available pickups</h2>
@@ -578,8 +578,8 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                       <p className="text-xs text-muted-ink">
                         #{order.id} · drop at {order.address || 'nearby'}
                       </p>
-                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready', riderName)} disabled={active.length > 0} className="mt-3 h-10 text-xs">
-                        {active.length > 0 ? 'Finish your active trip first' : 'Accept trip'}
+                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready', riderName)} disabled={active.length > 0 || pendingSellerDeposits.length > 0} className="mt-3 h-10 text-xs">
+                        {active.length > 0 ? 'Finish your active trip first' : pendingSellerDeposits.length > 0 ? 'Return seller cash first' : 'Accept trip'}
                       </PrimaryButton>
                     </article>
                   ))
@@ -629,76 +629,144 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
   )
 }
 
-function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) {
-  const { profile, setProfile } = useLazyHand()
-  const whatsappNumber = profile.whatsappNumber.replace(/\D/g, '').slice(-10)
-  const validWhatsappNumber = /^[6-9]\d{9}$/.test(whatsappNumber)
+function makeClosedWeek(): ShopHourDraft[] {
+  return WEEKDAYS.map((_, day_of_week) => ({ day_of_week, opens_at: null, closes_at: null, is_closed: true }))
+}
+
+function ShopHoursSettings() {
+  const { data: savedSettings, error: loadError, isLoading, mutate } = useSWR('seller-shop-hours', async () => {
+    const response = await fetch('/api/shop-hours', { cache: 'no-store' })
+    if (!response.ok) throw new Error('Sign in with an approved seller account to load shop hours.')
+    return response.json() as Promise<ShopSettingsResponse>
+  })
+  const savedHours = savedSettings?.hours
+  const [settings, setSettings] = useState<ShopSettings>(defaultShopSettings)
+  const [draft, setDraft] = useState<ShopHourDraft[]>(makeClosedWeek)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!savedSettings) return
+    const byDay = new Map(savedSettings.hours.map(hours => [hours.day_of_week, hours]))
+    setDraft(WEEKDAYS.map((_, day_of_week) => byDay.get(day_of_week) ?? { day_of_week, opens_at: null, closes_at: null, is_closed: true }))
+    setSettings(savedSettings.settings ?? defaultShopSettings)
+  }, [savedSettings])
+
+  const updateSettings = (patch: Partial<ShopSettings>) => setSettings(current => ({ ...current, ...patch }))
+
+  const updateDay = (day: number, patch: Partial<ShopHourDraft>) => {
+    setDraft(current => current.map(hours => hours.day_of_week === day ? { ...hours, ...patch } : hours))
+  }
+
+  const saveHours = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true); setFailure(''); setMessage('')
+    const invalidDay = draft.find(hours => !hours.is_closed && (!hours.opens_at || !hours.closes_at || hours.opens_at === hours.closes_at))
+    if (invalidDay) {
+      setSaving(false)
+      setFailure(`Add different opening and closing times for ${WEEKDAYS[invalidDay.day_of_week]}.`)
+      return
+    }
+    const response = await fetch('/api/shop-hours', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hours: draft, settings }),
+    })
+    setSaving(false)
+    if (!response.ok) {
+      setFailure('Shop hours could not be saved. Confirm your seller account is approved, then try again.')
+      return
+    }
+    setMessage('Weekly hours saved.')
+    setEditing(false)
+    await mutate()
+  }
+
+  const configured = Boolean(savedHours?.length)
 
   return (
-    <section className="mt-4 flex flex-col gap-3">
-      <div className="rounded-2xl border border-line bg-white p-4">
-        <p className="text-xs text-muted-ink">Demo profile · not signed in</p>
-        <p className="text-sm font-semibold">{profile.name || 'Preview user'}</p>
-        <p className="text-xs text-muted-ink">
-          {role}
-          {profile.phone && ` · +91 ${profile.phone}`}
-        </p>
-        {profile.shopName && <p className="mt-2 text-xs text-muted-ink">Registered shop: {profile.shopName} ({profile.shopType}) — pending review. You&apos;re managing a sample shop until it&apos;s approved.</p>}
-        {profile.vehicle && <p className="mt-2 text-xs text-muted-ink">Vehicle: {profile.vehicle}</p>}
+    <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="shop-hours-heading">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h3 id="shop-hours-heading" className="text-base font-bold">Weekly shop hours</h3><p className="mt-1 text-xs leading-5 text-muted-ink">Local shop time · India Standard Time (Asia/Kolkata)</p></div>
+        {!editing && <button type="button" onClick={() => setEditing(true)} className="min-h-10 rounded-xl border border-line px-3 text-sm font-semibold">{configured ? 'Edit hours' : 'Set hours'}</button>}
       </div>
+      {loadError && <p role="alert" className="mt-3 text-sm text-red-700">Shop hours could not be loaded. Refresh and try again.</p>}
+      {isLoading ? <p className="mt-3 text-sm text-muted-ink">Loading shop hours…</p> : !editing ? (
+        configured ? <ul className="mt-4 grid gap-2 sm:grid-cols-2">{WEEKDAYS.map((day, index) => { const hours = savedHours?.find(row => row.day_of_week === index); return <li key={day} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-3 py-2 text-sm"><span className="font-medium">{day}</span><span className="text-right text-muted-ink">{!hours || hours.is_closed ? 'Closed' : `${hours.opens_at?.slice(0, 5)} – ${hours.closes_at?.slice(0, 5)}`}</span></li> })}</ul> : <p className="mt-3 rounded-xl bg-cream px-3 py-3 text-sm text-muted-ink">Not configured yet. Add your usual opening and closing times for each day.</p>
+      ) : (
+        <form onSubmit={saveHours} className="mt-4 flex flex-col gap-2">
+          <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs leading-5 text-[#7C2D12]">Automatic status follows these hours unless you choose a manual override. Customer availability updates from this VPS-backed setting.</p>
+          <div className="grid gap-3 rounded-xl border border-line p-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs font-semibold">Shop timezone<input required value={settings.shop_timezone} onChange={event => updateSettings({ shop_timezone: event.target.value })} placeholder="Asia/Kolkata" className="h-10 rounded-lg border border-line px-3 text-sm" /><span className="font-normal text-muted-ink">Use an IANA timezone, such as Asia/Kolkata.</span></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Open status<select value={settings.shop_is_open_override === null ? 'automatic' : settings.shop_is_open_override ? 'open' : 'closed'} onChange={event => updateSettings({ shop_is_open_override: event.target.value === 'automatic' ? null : event.target.value === 'open' })} className="h-10 rounded-lg border border-line bg-white px-3 text-sm"><option value="automatic">Follow weekly hours</option><option value="open">Manually open</option><option value="closed">Manually closed</option></select></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Delivery estimate (minutes, minimum)<input type="number" min="1" max="240" value={settings.delivery_estimate_min ?? ''} onChange={event => updateSettings({ delivery_estimate_min: event.target.value ? Number(event.target.value) : null })} placeholder="30" className="h-10 rounded-lg border border-line px-3 text-sm" /></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Delivery estimate (minutes, maximum)<input type="number" min="1" max="240" value={settings.delivery_estimate_max ?? ''} onChange={event => updateSettings({ delivery_estimate_max: event.target.value ? Number(event.target.value) : null })} placeholder="45" className="h-10 rounded-lg border border-line px-3 text-sm" /></label>
+          </div>
+          {draft.map(hours => <fieldset key={hours.day_of_week} className="grid grid-cols-2 items-center gap-2 rounded-xl border border-line p-2.5 sm:grid-cols-[minmax(76px,1fr)_auto_minmax(90px,1fr)_minmax(90px,1fr)]">
+            <legend className="sr-only">{WEEKDAYS[hours.day_of_week]} schedule</legend>
+            <span className="text-xs font-semibold sm:text-sm">{WEEKDAYS[hours.day_of_week]}</span>
+            <label className="flex items-center gap-1.5 text-xs text-muted-ink"><input type="checkbox" checked={hours.is_closed} onChange={event => updateDay(hours.day_of_week, { is_closed: event.target.checked })} className="size-4 accent-brand" />Closed</label>
+            <label className="flex min-w-0 flex-col gap-1 text-[10px] text-muted-ink">Opens<input aria-label={`${WEEKDAYS[hours.day_of_week]} opening time`} type="time" value={hours.opens_at?.slice(0, 5) ?? ''} disabled={hours.is_closed} required={!hours.is_closed} onChange={event => updateDay(hours.day_of_week, { opens_at: event.target.value || null })} className="h-9 min-w-0 rounded-lg border border-line bg-white px-2 text-xs text-ink disabled:bg-muted" /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-[10px] text-muted-ink">Closes<input aria-label={`${WEEKDAYS[hours.day_of_week]} closing time`} type="time" value={hours.closes_at?.slice(0, 5) ?? ''} disabled={hours.is_closed} required={!hours.is_closed} onChange={event => updateDay(hours.day_of_week, { closes_at: event.target.value || null })} className="h-9 min-w-0 rounded-lg border border-line bg-white px-2 text-xs text-ink disabled:bg-muted" /></label>
+          </fieldset>)}
+          {failure && <p role="alert" className="text-sm text-red-700">{failure}</p>}
+          <div className="flex gap-2"><button type="submit" disabled={saving} className="min-h-11 rounded-xl bg-brand px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving…' : 'Save weekly hours'}</button><button type="button" onClick={() => { setEditing(false); setFailure('') }} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold">Cancel</button></div>
+        </form>
+      )}
+      {message && <p role="status" className="mt-3 text-sm font-medium text-green-700">{message}</p>}
+    </section>
+  )
+}
+
+function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) {
+  const { profile, setProfile } = useLazyHand()
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
+  const whatsappNumber = profile.whatsappNumber.replace(/\D/g, '').slice(-10)
+  const validWhatsappNumber = /^[6-9]\d{9}$/.test(whatsappNumber)
+  const signOut = async () => {
+    setSigningOut(true)
+    setSignOutError('')
+    const { error } = await createClient().auth.signOut()
+    setSigningOut(false)
+    if (error) {
+      setSignOutError('We couldn’t sign you out. Please try again.')
+      return
+    }
+    onExit()
+  }
+
+  return (
+    <section className="flex flex-col gap-4" aria-labelledby="account-heading">
+      <div><h2 id="account-heading" className="text-xl font-bold">Account & shop settings</h2><p className="mt-1 text-sm text-muted-ink">Your seller profile and shop preferences.</p></div>
+      <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="profile-heading">
+        <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><UserRound className="size-5" aria-hidden="true" /></span><div><h3 id="profile-heading" className="text-base font-bold">Seller profile</h3><p className="text-sm text-muted-ink">Account details</p></div></div>
+        <dl className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2"><div><dt className="text-xs font-medium text-muted-ink">Name</dt><dd className="mt-1 text-sm font-semibold">{profile.name || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Phone</dt><dd className="mt-1 text-sm font-semibold">{profile.phone ? `+91 ${profile.phone}` : 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop</dt><dd className="mt-1 text-sm font-semibold">{profile.shopName || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Business category</dt><dd className="mt-1 text-sm font-semibold capitalize">{profile.shopType || 'Not assigned'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop address</dt><dd className="mt-1 text-sm font-semibold">{[profile.village, profile.landmark].filter(Boolean).join(' · ') || 'Not provided'}</dd></div></dl>
+      </section>
+      {role === 'Shopkeeper' && <ShopHoursSettings />}
+
+      <section className="grid gap-3 sm:grid-cols-2" aria-label="Shop availability and payments">
+          <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Store className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Shop availability</h3></div><p className="mt-2 text-sm font-semibold">Managed by your weekly hours</p><p className="mt-1 text-xs leading-5 text-muted-ink">Set an automatic schedule or manually open/close your shop in the hours settings above. Customers see your live status and delivery estimate.</p></div>
+        <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Banknote className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Payments & settlements</h3></div><p className="mt-2 text-sm font-semibold">No verified payout account</p><p className="mt-1 text-xs leading-5 text-muted-ink">Settlement history and bank details aren&apos;t available for this account.</p></div>
+      </section>
 
       {role === 'Shopkeeper' && (
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="whatsapp-alerts-heading">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#E8F7ED] text-[#16803C]">
-              <MessageCircle className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 id="whatsapp-alerts-heading" className="text-sm font-bold">WhatsApp order alerts</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-ink">Set the shop&apos;s WhatsApp number. Alerts stay off until a VPS connection is available.</p>
-            </div>
-          </div>
-
-          <label htmlFor="seller-whatsapp" className="mt-4 block text-xs font-semibold">Shop WhatsApp number</label>
-          <div className="mt-1.5 flex h-11 items-center rounded-xl border border-line bg-white focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15">
-            <span className="border-r border-line px-3 text-sm text-muted-ink">+91</span>
-            <input
-              id="seller-whatsapp"
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              maxLength={10}
-              value={whatsappNumber}
-              onChange={event => setProfile({ ...profile, whatsappNumber: event.target.value.replace(/\D/g, '').slice(0, 10) })}
-              placeholder="98765 43210"
-              aria-describedby="seller-whatsapp-help"
-              aria-invalid={Boolean(whatsappNumber) && !validWhatsappNumber}
-              className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none"
-            />
-          </div>
-          <p id="seller-whatsapp-help" className="mt-1.5 text-[11px] leading-4 text-muted-ink">Use a WhatsApp number with a valid 10-digit Indian mobile number.</p>
-          {Boolean(whatsappNumber) && !validWhatsappNumber && <p role="alert" className="mt-1 text-xs text-[#B91C1C]">Enter a valid 10-digit mobile number starting with 6–9.</p>}
-
-          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-[#F7F8F6] px-3">
-            <input
-              type="checkbox"
-              checked={profile.whatsappAlertsEnabled}
-              disabled={!validWhatsappNumber}
-              onChange={event => setProfile({ ...profile, whatsappAlertsEnabled: event.target.checked })}
-              className="size-4 accent-[#16803C]"
-              aria-describedby="seller-alerts-status"
-            />
-            <span className="text-xs"><strong>Order notifications</strong><span className="mt-0.5 block text-[11px] text-muted-ink">{profile.whatsappAlertsEnabled && validWhatsappNumber ? 'Enabled in this preview' : 'Off'}</span></span>
-          </label>
-
-          <div id="seller-alerts-status" className="mt-3 rounded-xl border border-dashed border-line bg-[#FAF9F6] p-3" role="status" aria-live="polite">
-            <p className="text-xs font-semibold">{validWhatsappNumber ? 'Manual mode · ready for VPS pairing' : 'Add a number to get started'}</p>
-            <p className="mt-1 text-[11px] leading-4 text-muted-ink">{validWhatsappNumber ? 'This preview does not send WhatsApp messages or show a scannable pairing QR. Until your VPS bridge is connected, use the Orders tab to check new orders manually.' : 'A pairing QR will be shown once a WhatsApp bridge is connected. No QR or messages are simulated here.'}</p>
-          </div>
+        <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="whatsapp-alerts-heading">
+          <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-brand-deep"><MessageCircle className="size-5" aria-hidden="true" /></span><div className="min-w-0 flex-1"><h3 id="whatsapp-alerts-heading" className="text-base font-bold">WhatsApp order alerts</h3><p className="mt-1 text-sm leading-5 text-muted-ink">Save a contact preference for when seller alerts are available.</p></div></div>
+          <label htmlFor="seller-whatsapp" className="mt-4 block text-sm font-semibold">Shop WhatsApp number</label>
+          <div className="mt-1.5 flex h-12 items-center rounded-xl border border-line bg-white focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><span className="border-r border-line px-3 text-sm text-muted-ink">+91</span><input id="seller-whatsapp" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} value={whatsappNumber} onChange={event => setProfile({ ...profile, whatsappNumber: event.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="98765 43210" aria-describedby="seller-whatsapp-help" aria-invalid={Boolean(whatsappNumber) && !validWhatsappNumber} className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none" /></div>
+          <p id="seller-whatsapp-help" className="mt-1.5 text-xs leading-5 text-muted-ink">Use a valid 10-digit Indian mobile number starting with 6–9.</p>
+          {Boolean(whatsappNumber) && !validWhatsappNumber && <p role="alert" className="mt-1 text-sm text-[#B91F1F]">Enter a valid 10-digit mobile number starting with 6–9.</p>}
+          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-[#F7F8FA] px-3"><input type="checkbox" checked={profile.whatsappAlertsEnabled} disabled={!validWhatsappNumber} onChange={event => setProfile({ ...profile, whatsappAlertsEnabled: event.target.checked })} className="size-4 accent-[#D62828]" aria-describedby="seller-alerts-status" /><span className="text-sm"><strong>Order notifications preference</strong><span className="mt-0.5 block text-xs text-muted-ink">{profile.whatsappAlertsEnabled && validWhatsappNumber ? 'Preference saved' : 'Off'}</span></span></label>
+          <p id="seller-alerts-status" role="status" className="mt-3 rounded-xl border border-dashed border-line bg-[#F7F8FA] p-3 text-xs leading-5 text-muted-ink">WhatsApp delivery is unavailable until the messaging connection is enabled. No alerts are sent by this setting today.</p>
         </section>
       )}
 
-      <SecondaryButton onClick={onExit}>Switch to customer app</SecondaryButton>
+      <SecondaryButton onClick={onExit} className="h-12">Return to customer app</SecondaryButton>
+      <button type="button" onClick={() => void signOut()} disabled={signingOut} className="min-h-11 rounded-xl border border-line bg-white px-4 text-sm font-semibold text-[#B91F1F] disabled:opacity-60">{signingOut ? 'Signing out…' : 'Sign out'}</button>
+      {signOutError && <p role="alert" className="text-sm text-[#B91F1F]">{signOutError}</p>}
     </section>
   )
 }

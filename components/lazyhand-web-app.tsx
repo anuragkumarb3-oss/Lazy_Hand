@@ -28,9 +28,14 @@ type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'p
 
 const initialLocation: LocationState = { status: 'idle', area: '', message: '' }
 
+function isPhoneAuthUnavailable(message: string) {
+  const normalized = message.toLowerCase()
+  return normalized.includes('phone provider') || normalized.includes('phone sign') || normalized.includes('sms provider') || normalized.includes('signups not allowed for otp')
+}
+
 function friendlyAuthError(message: string, action: 'send' | 'verify') {
   const normalized = message.toLowerCase()
-  if (normalized.includes('phone provider') || normalized.includes('phone sign') || normalized.includes('sms provider')) {
+  if (isPhoneAuthUnavailable(message)) {
     return 'Phone verification is not enabled for this Supabase project yet. Enable phone sign-in and configure SMS delivery to test it.'
   }
   if (normalized.includes('rate limit') || normalized.includes('too many')) {
@@ -98,7 +103,7 @@ function useLocation() {
   return { location, request }
 }
 
-function LazyHandShell() {
+function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const { profile, setProfile, setOrders, cartCount } = useLazyHand()
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
@@ -109,6 +114,7 @@ function LazyHandShell() {
   const [loginPhone, setLoginPhone] = useState('')
   const [afterOtp, setAfterOtp] = useState<Role>('customer')
   const [pendingProfile, setPendingProfile] = useState<Profile | null>(null)
+  const [pendingPolicyKeys, setPendingPolicyKeys] = useState<string[]>([])
   const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
   const [authenticatedPhone, setAuthenticatedPhone] = useState('')
   const profileKey = authenticatedUserId ? ['lazyhand-profile', authenticatedUserId] as const : null
@@ -182,20 +188,34 @@ function LazyHandShell() {
       phone: `+91${phone}`,
       options: { shouldCreateUser: false },
     })
-    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    if (error) {
+      if (previewMode && isPhoneAuthUnavailable(error.message)) {
+        enterPreviewGuest()
+        return
+      }
+      throw new Error(friendlyAuthError(error.message, 'send'))
+    }
     setLoginPhone(phone)
     setPendingProfile(null)
+    setPendingPolicyKeys([])
     setAfterOtp('customer')
     setStage('otp')
   }
 
-  const sendSignupCode = async (newProfile: Profile) => {
+  const sendSignupCode = async (newProfile: Profile, policyKeys: string[]) => {
     const { error } = await createSupabaseClient().auth.signInWithOtp({
       phone: `+91${newProfile.phone}`,
       options: { shouldCreateUser: true, data: { name: newProfile.name } },
     })
-    if (error) throw new Error(friendlyAuthError(error.message, 'send'))
+    if (error) {
+      if (previewMode && isPhoneAuthUnavailable(error.message)) {
+        enterPreviewGuest()
+        return
+      }
+      throw new Error(friendlyAuthError(error.message, 'send'))
+    }
     setPendingProfile(newProfile)
+    setPendingPolicyKeys(policyKeys)
     setLoginPhone(newProfile.phone)
     setAfterOtp(newProfile.role)
     setStage('otp')
@@ -232,12 +252,20 @@ function LazyHandShell() {
         throw new Error('Your account was verified, but we could not save your profile. Please try again.')
       }
     }
-    if (requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
-      const { error: applicationError } = await supabase.from('seller_applications').insert({ user_id: data.user.id })
-      if (applicationError && applicationError.code !== '23505') {
-        throw new Error('Your account is ready, but your shopkeeper request could not be submitted. Please contact support.')
+    if (pendingPolicyKeys.length || requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
+      const onboardingResponse = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: pendingProfile?.role ?? verifiedProfile.role,
+          policyKeys: pendingPolicyKeys,
+        }),
+      })
+      if (!onboardingResponse.ok) {
+        throw new Error('Your account is ready, but onboarding could not be saved. Please try again.')
       }
-      setSellerRequestSubmitted(true)
+      const onboardingResult = await onboardingResponse.json() as { sellerRequestSubmitted: boolean }
+      setSellerRequestSubmitted(onboardingResult.sellerRequestSubmitted)
     }
 
     setAuthenticatedUserId(data.user.id)
@@ -245,6 +273,7 @@ function LazyHandShell() {
     setProfile(verifiedProfile)
     setActiveRole(verifiedProfile.role)
     setPendingProfile(null)
+    setPendingPolicyKeys([])
     setSessionReady(true)
     enterApp(verifiedProfile.role)
   }
@@ -256,6 +285,14 @@ function LazyHandShell() {
     setStage('loading')
     window.setTimeout(() => setStage('app'), 850)
     window.scrollTo({ top: 0 })
+  }
+
+  const enterPreviewGuest = () => {
+    setProfile({ ...emptyProfile })
+    setPendingProfile(null)
+    setAuthenticatedUserId(null)
+    setAuthenticatedPhone('')
+    enterApp('customer')
   }
 
   const go = (next: Overlay) => {
@@ -307,6 +344,13 @@ function LazyHandShell() {
         onCreate={sendSignupCode}
         onLogin={() => setStage('login')}
         onBack={() => setStage('location')}
+        onSkip={() => {
+          setProfile({ ...emptyProfile })
+          setPendingProfile(null)
+          setAuthenticatedUserId(null)
+          setAuthenticatedPhone('')
+          enterApp('customer')
+        }}
       />
     )
 
@@ -321,7 +365,7 @@ function LazyHandShell() {
     setStage('welcome')
   }
 
-  if (activeRole === 'shopkeeper') return <ShopkeeperDashboard onExit={() => enterApp('customer')} />
+  if (activeRole === 'shopkeeper') return <ShopkeeperDashboard onExit={() => enterApp('customer')} previewMode={previewMode} />
   if (activeRole === 'rider') return <RiderDashboard onExit={() => enterApp('customer')} />
 
   const editAddress = () => {
@@ -337,7 +381,7 @@ function LazyHandShell() {
     body = <CartScreen onBack={() => go(null)} onCheckout={() => go({ kind: 'payment' })} onBrowse={() => { setTab('home'); go(null) }} />
   } else if (overlay?.kind === 'payment') {
     showNav = false
-    body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} />
+      body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} canPlaceOrder={Boolean(authenticatedUserId)} onSignIn={() => setStage('login')} />
   } else if (overlay?.kind === 'track') {
     showNav = false
     body = <TrackingScreen orderId={overlay.orderId} onBack={() => { setTab('orders'); go(null) }} onViewAs={role => enterApp(role)} />
@@ -346,10 +390,9 @@ function LazyHandShell() {
       <CustomerHome
         area={area}
         onChangeLocation={() => setStage('location')}
-        onOpenStore={id => go({ kind: 'store', shopId: id })}
       />
     )
-  else if (tab === 'categories') body = <CategoriesScreen />
+  else if (tab === 'categories') body = <CategoriesScreen area={area} />
   else if (tab === 'orders') body = <OrderAgainScreen onTrack={id => go({ kind: 'track', orderId: id })} onReordered={() => go({ kind: 'cart' })} />
   else
     body = (
@@ -365,6 +408,7 @@ function LazyHandShell() {
   return (
     <div className="mx-auto min-h-svh w-full max-w-md bg-cream text-ink">
       {sellerRequestSubmitted && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-3 text-center text-sm text-[#9A3412]">Shopkeeper request received. You can start listing after an administrator approves your account.</p>}
+      {!authenticatedUserId && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-2.5 text-center text-xs font-medium text-[#9A3412]">Guest browsing — sign in to place orders and view saved orders.</p>}
       {body}
       {showNav && (
         <>
@@ -390,10 +434,10 @@ function LazyHandShell() {
   )
 }
 
-export default function LazyHandWebApp() {
+export default function LazyHandWebApp({ previewMode = false }: { previewMode?: boolean }) {
   return (
     <LazyHandProvider>
-      <LazyHandShell />
+      <LazyHandShell previewMode={previewMode} />
     </LazyHandProvider>
   )
 }

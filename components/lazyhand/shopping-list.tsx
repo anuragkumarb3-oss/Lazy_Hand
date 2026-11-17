@@ -26,8 +26,8 @@ async function getNativeNotifications() {
 
 const colors = {
   ink: '#252C37',
-  brand: '#C2410C',
-  brandDeep: '#9A3412',
+  brand: '#D62828',
+  brandDeep: '#B91F1F',
   paper: '#FAF7F2',
   white: '#FFFFFF',
   muted: '#727984',

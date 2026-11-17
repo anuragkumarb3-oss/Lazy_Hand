@@ -28,7 +28,7 @@ import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, St
 
 function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)]">
+    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line/80 bg-white/95 px-4 pb-3 pt-[max(env(safe-area-inset-top),14px)] backdrop-blur">
       <BackButton onClick={onBack} />
       <h1 className="text-base font-bold">{title}</h1>
     </header>
@@ -40,23 +40,23 @@ function DeliveryGoal({ itemTotal }: { itemTotal: number }) {
   const progress = Math.min(100, (itemTotal / FREE_DELIVERY_THRESHOLD) * 100)
 
   return (
-    <section className="rounded-2xl border border-[#BBF7D0] bg-[#F0FDF4] p-3.5" aria-label="Free delivery progress">
+    <section className="rounded-3xl border border-[#FECACA] bg-[#FFF7F7] p-3.5" aria-label="Delivery discount progress">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-[#166534]" role="status">
-          {remaining > 0 ? `Add ${rupee(remaining)} more for free delivery` : 'You unlocked free delivery'}
+        <p className="text-xs font-semibold text-[#991B1B]" role="status">
+          {remaining > 0 ? `Add ${rupee(remaining)} more for 50% off delivery` : 'You unlocked 50% off delivery'}
         </p>
-        <Truck className="size-4 shrink-0 text-[#15803D]" aria-hidden="true" />
+        <Truck className="size-4 shrink-0 text-[#B91C1C]" aria-hidden="true" />
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#DCFCE7]" role="progressbar" aria-label="Free delivery progress" aria-valuemin={0} aria-valuemax={FREE_DELIVERY_THRESHOLD} aria-valuenow={Math.min(itemTotal, FREE_DELIVERY_THRESHOLD)}>
-        <div className="h-full rounded-full bg-[#16A34A] transition-[width]" style={{ width: `${progress}%` }} />
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#FEE2E2]" role="progressbar" aria-label="Delivery discount progress" aria-valuemin={0} aria-valuemax={FREE_DELIVERY_THRESHOLD} aria-valuenow={Math.min(itemTotal, FREE_DELIVERY_THRESHOLD)}>
+        <div className="h-full rounded-full bg-[#DC2626] transition-[width]" style={{ width: `${progress}%` }} />
       </div>
-      <p className="mt-1.5 text-[10px] text-[#166534]">Free delivery on orders of {rupee(FREE_DELIVERY_THRESHOLD)} or more</p>
+      <p className="mt-1.5 text-[10px] text-[#991B1B]">50% off delivery on orders of {rupee(FREE_DELIVERY_THRESHOLD)} or more</p>
     </section>
   )
 }
 
-function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { itemTotal: number; distanceKm?: number }) {
-  const bill = billFor(itemTotal, distanceKm)
+function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, multiStore = false }: { itemTotal: number; distanceKm?: number; multiStore?: boolean }) {
+  const bill = billFor(itemTotal, distanceKm, false, { multiStore })
   return (
     <dl className="flex flex-col gap-2 text-sm">
       <div className="flex justify-between">
@@ -69,18 +69,9 @@ function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { it
       </div>
       <div className="flex justify-between">
         <dt className="text-muted-ink">Platform fee</dt>
-        <dd className="font-semibold">
-          {bill.platformDiscount > 0 ? (
-            <><span className="mr-2 font-normal text-muted-ink line-through">{rupee(bill.platformFeeBeforeDiscount)}</span>{' '}<span className="text-[#15803D]">Free</span></>
-          ) : rupee(bill.platformFee)}
-        </dd>
+        <dd className="font-semibold">{multiStore || bill.platformFee === 0 ? 'Free' : rupee(bill.platformFee)}</dd>
       </div>
-      {bill.platformDiscount > 0 && (
-        <div className="flex justify-between text-[#15803D]">
-          <dt>Platform fee discount</dt>
-          <dd className="font-semibold">−{rupee(bill.platformDiscount)}</dd>
-        </div>
-      )}
+      {bill.multiStoreSurcharge > 0 && <div className="flex justify-between"><dt className="text-muted-ink">Multi-store checkout</dt><dd className="font-semibold">{rupee(bill.multiStoreSurcharge)}</dd></div>}
       <div className="mt-1 flex justify-between border-t border-dashed border-line pt-3 text-base font-bold">
         <dt>To pay</dt>
         <dd>{rupee(bill.total)}</dd>
@@ -91,6 +82,8 @@ function BillRows({ itemTotal, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM }: { it
 
 export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => void; onCheckout: () => void; onBrowse: () => void }) {
   const { cartLines, cartTotal, cart, shopById, products, addItem, removeItem, setDeliveryDistance } = useLazyHand()
+  const storeIds = Array.from(new Set(cartLines.map(({ product }) => product.shopId)))
+  const multiStore = storeIds.length > 1
   if (!cartLines.length || !cart.shopId) {
     return (
       <div className="flex min-h-svh flex-col">
@@ -116,15 +109,15 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
           <p>Fair delivery pricing · <strong className="text-brand-deep">distance-based fees, no seller commission</strong></p>
         </div>
 
-        <DeliveryGoal itemTotal={cartTotal} />
+        {!multiStore && <DeliveryGoal itemTotal={cartTotal} />}
+        {multiStore && <p className="rounded-2xl border border-line bg-white p-3 text-xs text-muted-ink">One rider collects your separate orders. Delivery and platform fees are free, plus one {rupee(39)} multi-store fee.</p>}
 
         <section className="rounded-2xl border border-line bg-white px-3.5" aria-label="Cart items">
-          <p className="flex items-center gap-2 border-b border-line py-3 text-xs font-semibold text-muted-ink">
-            <Store className="size-3.5" aria-hidden="true" /> {shopById[cart.shopId].name}
-          </p>
           <ul>
-            {cartLines.map(({ product, qty }) => (
-              <li key={product.id} className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
+            {cartLines.map(({ product, qty }, index) => (
+              <li key={product.id} className="flex flex-col border-b border-line last:border-b-0">
+                {(index === 0 || cartLines[index - 1].product.shopId !== product.shopId) && <p className="flex items-center gap-2 border-b border-line py-3 text-xs font-semibold text-muted-ink"><Store className="size-3.5" aria-hidden="true" />{shopById[product.shopId]?.name ?? 'Local store'}</p>}
+                <div className="flex items-center gap-3 py-3">
                 <ProductTile category={product.category} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{product.name}</p>
@@ -133,6 +126,7 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
                 <div className="flex flex-col items-end gap-1">
                   <QtyControl qty={qty} onAdd={() => addItem(product.id)} onRemove={() => removeItem(product.id)} label={product.name} />
                   <span className="text-sm font-semibold">{rupee(product.price * qty)}</span>
+                </div>
                 </div>
               </li>
             ))}
@@ -189,13 +183,13 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
 
         <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="bill-heading">
           <h2 id="bill-heading" className="mb-3 text-sm font-bold">Bill details</h2>
-          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} />
+          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} multiStore={multiStore} />
         </section>
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
           <PrimaryButton onClick={onCheckout}>
-            Proceed to checkout · {rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}
+            Proceed to checkout · {rupee(billFor(cartTotal, cart.deliveryDistanceKm, false, { multiStore }).total)}
           </PrimaryButton>
         </div>
       </div>
@@ -203,8 +197,10 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
   )
 }
 
-export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void }) {
+export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceOrder, onSignIn }: { area: string; onBack: () => void; onPlaced: (order: Order) => void; onEditAddress: () => void; canPlaceOrder: boolean; onSignIn: () => void }) {
   const { cartTotal, cartCount, cartLines, cart, shopById, profile, placeOrder } = useLazyHand()
+  const storeIds = Array.from(new Set(cartLines.map(({ product }) => product.shopId)))
+  const multiStore = storeIds.length > 1
   const [error, setError] = useState('')
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null)
   const [isPlacing, setIsPlacing] = useState(false)
@@ -252,7 +248,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
     <div className="flex min-h-svh flex-col pb-28">
       <TopBar title="Checkout" onBack={onBack} />
       <div className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pt-4">
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="deliver-heading">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="deliver-heading">
           <div className="flex items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-peach text-brand-deep">
               <Home className="size-5" aria-hidden="true" />
@@ -277,9 +273,10 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           )}
         </section>
 
-        <DeliveryGoal itemTotal={cartTotal} />
+        {!multiStore && <DeliveryGoal itemTotal={cartTotal} />}
+        {multiStore && <p className="rounded-2xl border border-line bg-white p-3 text-xs text-muted-ink">One rider collects {storeIds.length} separate store orders. A single ₹39 fee applies; delivery and platform fees are free.</p>}
 
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="pay-heading">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="pay-heading">
           <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
           <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
             <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
@@ -291,7 +288,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
           </div>
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-4">
+        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]">
           <h2 className="mb-3 text-sm font-bold">
             Order summary <span className="font-normal text-muted-ink">({cartCount} items)</span>
           </h2>
@@ -303,7 +300,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
               </li>
             ))}
           </ul>
-          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} />
+          <BillRows itemTotal={cartTotal} distanceKm={cart.deliveryDistanceKm} multiStore={multiStore} />
         </section>
         {error && (
           <p role="alert" className="rounded-xl bg-[#FEF2F2] p-3 text-sm text-[#991B1B]">
@@ -313,7 +310,14 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress }: { area:
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
-          <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm).total)}`}</PrimaryButton>
+          {canPlaceOrder ? (
+            <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm, false, { multiStore }).total)}`}</PrimaryButton>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-center text-xs leading-5 text-muted-ink">Guest preview only. Sign in to save and place this order.</p>
+              <PrimaryButton onClick={onSignIn}>Sign in to place order</PrimaryButton>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -390,6 +394,15 @@ export function TrackingScreen({ orderId, onBack, onViewAs }: { orderId: string;
           )}
         </section>
 
+        {order.status === 'picked' && order.deliveryOtp && (
+          <section className="rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4" aria-labelledby="delivery-code-heading">
+            <h2 id="delivery-code-heading" className="text-sm font-bold">Your delivery code</h2>
+            <p className="mt-1 text-xs leading-5 text-[#9A3412]">Pay the rider first. Only then tell them this code to confirm delivery. Never share it before payment is complete.</p>
+            <p className="mt-3 text-center text-2xl font-extrabold tracking-[0.45em] text-brand-deep" aria-label={`Delivery code ${order.deliveryOtp}`}>{order.deliveryOtp}</p>
+            <p className="mt-2 text-[11px] leading-4 text-muted-ink">In this preview, confirm cash only. Digital/QR collection is not connected; do not pay to a personal or third-party QR.</p>
+          </section>
+        )}
+
         {order.riderName && !rejected && (
           <section className="flex items-center gap-3 rounded-2xl border border-line bg-white p-4">
             <span className="grid size-11 place-items-center rounded-full bg-peach text-sm font-bold text-brand-deep">{order.riderName[0]}</span>
@@ -454,13 +467,15 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
       </header>
       <ul className="mx-auto flex max-w-md flex-col gap-3 px-4 pt-4">
         {orders.map(order => {
+          const shop = shopById?.[order.shopId]
+          const shopName = shop && typeof shop.name === 'string' ? shop.name : 'Shop no longer available'
           const active = !['delivered', 'rejected'].includes(order.status)
           const count = order.lines.reduce((s, l) => s + l.qty, 0)
           return (
             <li key={order.id} className="rounded-2xl border border-line bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{shopById[order.shopId].name}</p>
+                  <p className="truncate text-sm font-semibold">{shopName}</p>
                   <p className="text-xs text-muted-ink">
                     {order.placedAt} · {count} items · {rupee(order.total)}
                   </p>
@@ -480,7 +495,7 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
                   <PrimaryButton onClick={() => onTrack(order.id)} className="h-10 text-xs">
                     <Package className="size-4" aria-hidden="true" /> Track order
                   </PrimaryButton>
-                ) : (
+                ) : shop ? (
                   <PrimaryButton
                     onClick={() => {
                       reorder(order)
@@ -490,6 +505,8 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
                   >
                     <RefreshCw className="size-4" aria-hidden="true" /> Reorder
                   </PrimaryButton>
+                ) : (
+                  <p className="self-center text-xs text-muted-ink">This shop is no longer available</p>
                 )}
                 <SecondaryButton onClick={() => setOpenBill(openBill === order.id ? null : order.id)} aria-expanded={openBill === order.id} className="h-10 text-xs">
                   <Receipt className="size-4" aria-hidden="true" /> {openBill === order.id ? 'Hide bill' : 'View bill'}
@@ -515,7 +532,7 @@ export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAd
   ]
   return (
     <div className="pb-28">
-      <header className="bg-gradient-to-br from-brand to-[#FFA94D] px-4 pb-6 pt-[max(env(safe-area-inset-top),20px)] text-white">
+      <header className="bg-gradient-to-br from-brand to-[#EF4444] px-4 pb-6 pt-[max(env(safe-area-inset-top),20px)] text-white">
         <div className="mx-auto flex max-w-md items-center gap-3">
           <span className="grid size-14 place-items-center rounded-full bg-white text-xl font-bold text-brand-deep">{name[0].toUpperCase()}</span>
           <div className="min-w-0">

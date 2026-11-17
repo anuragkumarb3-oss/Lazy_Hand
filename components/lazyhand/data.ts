@@ -56,6 +56,9 @@ export type Product = {
   price: number
   category: CategoryId
   inStock: boolean
+  featured?: boolean
+  imageUrl?: string
+  demoOnly?: boolean
 }
 
 export const seedProducts: Product[] = [
@@ -77,6 +80,16 @@ export const seedProducts: Product[] = [
   { id: 'p16', shopId: 'sharma', name: 'Fresh Paneer', unit: '200 g', price: 90, category: 'dairy', inStock: true },
   { id: 'p17', shopId: 'sharma', name: 'Curd', unit: '400 g', price: 35, category: 'dairy', inStock: true },
   { id: 'p18', shopId: 'sharma', name: 'Kulfi Stick', unit: '1 pc', price: 25, category: 'icecream', inStock: true },
+  { id: 'p19', shopId: 'gupta', name: 'Premium Basmati Rice', unit: '1 kg', price: 149, category: 'staples', inStock: true, featured: true },
+  { id: 'p20', shopId: 'gupta', name: 'Raw Forest Honey', unit: '250 g', price: 129, category: 'staples', inStock: true },
+  { id: 'p21', shopId: 'gupta', name: 'Dark Chocolate Cookies', unit: '150 g', price: 85, category: 'bakery', inStock: true, featured: true },
+  { id: 'p22', shopId: 'gupta', name: 'Roasted Almonds', unit: '100 g', price: 110, category: 'snacks', inStock: true, featured: true },
+  { id: 'p23', shopId: 'raj', name: 'Cold-Pressed Mustard Oil', unit: '1 L', price: 189, category: 'staples', inStock: true },
+  { id: 'p24', shopId: 'raj', name: 'Green Grapes', unit: '500 g', price: 75, category: 'veg', inStock: true },
+  { id: 'p25', shopId: 'raj', name: 'Tender Coconut Water', unit: '200 ml', price: 35, category: 'drinks', inStock: true },
+  { id: 'p26', shopId: 'sharma', name: 'Creamy Mango Lassi', unit: '250 ml', price: 45, category: 'dairy', inStock: true },
+  { id: 'p27', shopId: 'sharma', name: 'Belgian Chocolate Ice Cream', unit: '500 ml', price: 175, category: 'icecream', inStock: true, featured: true },
+  { id: 'p28', shopId: 'sharma', name: 'Sourdough Multigrain Loaf', unit: '400 g', price: 95, category: 'bakery', inStock: true },
 ]
 
 export type OrderStatus = 'placed' | 'accepted' | 'ready' | 'picked' | 'delivered' | 'rejected'
@@ -95,52 +108,63 @@ export type Order = {
   sellerDeliveryDeduction: number
   sellerPayout: number
   total: number
+  multiStoreSurcharge?: number
   payment: Payment
   status: OrderStatus
   placedAt: string
   customerName: string
   address: string
   riderName?: string
+  pickupOtp?: string
+  deliveryOtp?: string
+  pickupVerified?: boolean
+  paymentConfirmed?: boolean
+  cashRemittedToSeller?: boolean
 }
 
 export const DEFAULT_DELIVERY_DISTANCE_KM = 4
-export const FREE_DELIVERY_THRESHOLD = 299
+export const FREE_DELIVERY_THRESHOLD = 199
+
+export const CUSTOMER_DELIVERY_FEE = 40
+export const SELLER_DELIVERY_FEE_BELOW_THRESHOLD = 0
+export const SELLER_DELIVERY_FEE_AT_THRESHOLD = 0
+export const MULTI_STORE_SURCHARGE = 39
+export const PLATFORM_FEE_THRESHOLD = 100
+export const DEFAULT_PLATFORM_FEE = 15
+export const MAX_PLATFORM_FEE = 20
 
 export const DELIVERY_SLABS = [
-  { label: '0–2 km', maxDistanceKm: 2, customerFee: 29, riderPayout: 20 },
-  { label: '2–3 km', maxDistanceKm: 3, customerFee: 34, riderPayout: 23 },
-  { label: '3–4 km', maxDistanceKm: 4, customerFee: 39, riderPayout: 26 },
-  { label: '4–5 km', maxDistanceKm: 5, customerFee: 44, riderPayout: 29 },
-  { label: '5–6 km', maxDistanceKm: 6, customerFee: 49, riderPayout: 32 },
+  { label: '0–2 km', maxDistanceKm: 2, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 20 },
+  { label: '2–3 km', maxDistanceKm: 3, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 23 },
+  { label: '3–4 km', maxDistanceKm: 4, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 26 },
+  { label: '4–5 km', maxDistanceKm: 5, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 29 },
+  { label: '5–6 km', maxDistanceKm: 6, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 32 },
 ] as const
 
 export const PLATFORM_FEE_SLABS = [
-  { label: 'Below ₹179', maxOrderValue: 178, fee: 5 },
-  { label: '₹179–₹299', maxOrderValue: 299, fee: 9 },
-  { label: '₹300–₹499', maxOrderValue: 499, fee: 14 },
-  { label: '₹500–₹799', maxOrderValue: 799, fee: 19 },
-  { label: '₹800–₹999', maxOrderValue: 999, fee: 24 },
-  { label: '₹1,000+', maxOrderValue: Number.POSITIVE_INFINITY, fee: 29 },
+  { label: 'Above ₹100', maxOrderValue: Number.POSITIVE_INFINITY, fee: DEFAULT_PLATFORM_FEE },
 ] as const
 
 export function deliverySlabFor(distanceKm: number) {
   return DELIVERY_SLABS.find(slab => distanceKm <= slab.maxDistanceKm) ?? DELIVERY_SLABS[DELIVERY_SLABS.length - 1]
 }
 
-export function platformFeeFor(itemTotal: number) {
-  if (itemTotal <= 0) return 0
-  return PLATFORM_FEE_SLABS.find(slab => itemTotal <= slab.maxOrderValue)?.fee ?? PLATFORM_FEE_SLABS[PLATFORM_FEE_SLABS.length - 1].fee
+export function platformFeeFor(itemTotal: number, configuredFee = DEFAULT_PLATFORM_FEE) {
+  if (itemTotal <= PLATFORM_FEE_THRESHOLD) return 0
+  return Math.max(15, Math.min(MAX_PLATFORM_FEE, Math.round(configuredFee)))
 }
 
-export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false) {
+export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false, options: { multiStore?: boolean; platformFee?: number } = {}) {
   const slab = deliverySlabFor(distanceKm)
-  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers ? 0 : slab.customerFee
-  const qualifiesForFreeDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
-  const deliveryFee = qualifiesForFreeDelivery ? 0 : deliveryFeeBeforeDiscount
+  const discountedDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
+  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers || options.multiStore ? 0 : CUSTOMER_DELIVERY_FEE
+  const deliveryFee = discountedDelivery && deliveryFeeBeforeDiscount > 0 ? deliveryFeeBeforeDiscount / 2 : deliveryFeeBeforeDiscount
+  const sellerDeliveryDeduction = 0
   const deliveryDiscount = deliveryFeeBeforeDiscount - deliveryFee
-  const platformFeeBeforeDiscount = platformFeeFor(itemTotal)
-  const platformFee = platformFeeBeforeDiscount > 0 && platformFeeBeforeDiscount < 20 ? 0 : platformFeeBeforeDiscount
-  const platformDiscount = platformFeeBeforeDiscount - platformFee
+  const platformFeeBeforeDiscount = options.multiStore ? 0 : platformFeeFor(itemTotal, options.platformFee)
+  const platformFee = platformFeeBeforeDiscount
+  const platformDiscount = 0
+  const multiStoreSurcharge = options.multiStore && itemTotal > 0 ? MULTI_STORE_SURCHARGE : 0
   return {
     itemTotal,
     deliveryFeeBeforeDiscount,
@@ -149,11 +173,12 @@ export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANC
     platformFeeBeforeDiscount,
     platformDiscount,
     platformFee,
+    multiStoreSurcharge,
     deliveryDistanceKm: distanceKm,
     riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
-    sellerDeliveryDeduction: deliveryDiscount,
-    sellerPayout: Math.max(0, itemTotal - deliveryDiscount),
-    total: itemTotal + deliveryFee + platformFee,
+    sellerDeliveryDeduction,
+    sellerPayout: itemTotal,
+    total: itemTotal + deliveryFee + platformFee + multiStoreSurcharge,
   }
 }
 

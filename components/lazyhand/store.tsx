@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   billFor,
@@ -32,13 +32,18 @@ type LazyHandState = {
   profile: Profile
   setOrders: (orders: Order[]) => void
   setProfile: (profile: Profile) => void
+  setCatalogData: (shops: Shop[], products: Product[]) => void
   addItem: (productId: string) => void
+  addCatalogItem: (product: Product, shop: Shop) => void
   removeItem: (productId: string) => void
   setDeliveryDistance: (distanceKm: number) => void
   resolveConflict: (replace: boolean) => void
   placeOrder: (payment: Payment, address: string) => Promise<Order | null>
   reorder: (order: Order) => void
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
+  verifyOrderOtp: (orderId: string, phase: 'pickup' | 'delivery', code: string) => boolean
+  confirmOrderPayment: (orderId: string) => void
+  remitOrderToSeller: (orderId: string) => void
   toggleShopOpen: (shopId: string) => void
   toggleStock: (productId: string) => void
   addProduct: (product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => void
@@ -63,6 +68,12 @@ export const emptyProfile: Profile = {
 
 let orderCounter = 2410
 
+function createOtp() {
+  const values = new Uint32Array(1)
+  globalThis.crypto.getRandomValues(values)
+  return String(values[0] % 10000).padStart(4, '0')
+}
+
 export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [shops, setShops] = useState(seedShops)
   const [products, setProducts] = useState(seedProducts)
@@ -70,6 +81,12 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [conflictProductId, setConflictProductId] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
+  const orderAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
+
+  const setCatalogData = useCallback((nextShops: Shop[], nextProducts: Product[]) => {
+    setShops(nextShops)
+    setProducts(nextProducts)
+  }, [])
 
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products])
   const shopById = useMemo(() => Object.fromEntries(shops.map(s => [s.id, s])), [shops])
@@ -84,18 +101,32 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const addItem = useCallback(
     (productId: string) => {
       const product = productById[productId]
-      if (!product || !product.inStock || !shopById[product.shopId]?.open) return
+      if (!product || product.demoOnly || !product.inStock || !shopById[product.shopId]?.open) return
       setCart(current => {
-        const hasItems = Object.values(current.items).some(q => q > 0)
-        if (hasItems && current.shopId !== product.shopId) {
+        const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
+        if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
           setConflictProductId(productId)
           return current
         }
-        return { ...current, shopId: product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
+        return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
       })
     },
     [productById, shopById],
   )
+
+  const addCatalogItem = useCallback((product: Product, shop: Shop) => {
+    if (product.demoOnly || !product.inStock || !shop.open) return
+    setShops(current => current.some(item => item.id === shop.id) ? current : [...current, shop])
+    setProducts(current => current.some(item => item.id === product.id) ? current : [...current, product])
+    setCart(current => {
+      const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
+      if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
+        setConflictProductId(product.id)
+        return current
+      }
+      return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [product.id]: Math.min((current.items[product.id] ?? 0) + 1, 20) } }
+    })
+  }, [productById])
 
   const removeItem = useCallback((productId: string) => {
     setCart(current => {
@@ -113,7 +144,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     (replace: boolean) => {
       if (replace && conflictProductId) {
         const product = productById[conflictProductId]
-        setCart({ shopId: product.shopId, items: { [conflictProductId]: 1 }, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
+        setCart(current => ({ ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [conflictProductId]: Math.min((current.items[conflictProductId] ?? 0) + 1, 20) } }))
       }
       setConflictProductId(null)
     },
@@ -123,44 +154,69 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const placeOrder = useCallback(
     async (payment: Payment, address: string) => {
       if (!cart.shopId || cartLines.length === 0) return null
+      const groupedLines = Array.from(cartLines.reduce((groups, line) => {
+        const group = groups.get(line.product.shopId) ?? []
+        group.push(line)
+        groups.set(line.product.shopId, group)
+        return groups
+      }, new Map<string, typeof cartLines>()).entries())
+      const multiStore = groupedLines.length > 1
       const { data: { user }, error: authError } = await createClient().auth.getUser()
       if (authError) throw new Error('We could not verify your session. Please sign in again.')
-      let order: Order
+      let orders: Order[]
 
       if (user) {
-        const response = await fetch('/api/orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shopId: cart.shopId,
-            lines: cartLines.map(({ product, qty }) => ({ productId: product.id, qty })),
-            deliveryDistanceKm: cart.deliveryDistanceKm,
-            address,
-          }),
-        })
-        const result = await response.json().catch(() => null) as { order?: Order; error?: string } | null
-        if (!response.ok || !result?.order) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
-        order = result.order
-      } else {
-        orderCounter += 1
-        order = {
-          id: `LH${orderCounter}`,
-          shopId: cart.shopId,
-          lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
-          ...billFor(cartTotal, cart.deliveryDistanceKm),
-          payment,
-          status: 'placed',
-          placedAt: 'Today',
-          customerName: profile.name || 'Guest',
+        const requestBody = {
+          stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
+          deliveryDistanceKm: cart.deliveryDistanceKm,
           address,
         }
+        const fingerprint = JSON.stringify(requestBody)
+        if (!orderAttempt.current || orderAttempt.current.fingerprint !== fingerprint) {
+          orderAttempt.current = { fingerprint, key: crypto.randomUUID() }
+        }
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': orderAttempt.current.key },
+          body: JSON.stringify(requestBody),
+        })
+        const result = await response.json().catch(() => null) as { orders?: Order[]; order?: Order; error?: string } | null
+        const savedOrders = result?.orders ?? (result?.order ? [result.order] : [])
+        if (!response.ok || savedOrders.length !== groupedLines.length) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
+        orderAttempt.current = null
+        orders = savedOrders.map(order => ({ ...order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }))
+      } else {
+        orders = groupedLines.map(([shopId, lines], index) => {
+          orderCounter += 1
+          const subtotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0)
+          const bill = billFor(subtotal, cart.deliveryDistanceKm, false, { multiStore })
+          if (multiStore && index > 0) {
+            bill.multiStoreSurcharge = 0
+            bill.total -= 39
+          }
+          return {
+            id: `LH${orderCounter}`,
+            shopId,
+            lines: lines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
+            ...bill,
+            payment,
+            status: 'placed',
+            placedAt: 'Today',
+            customerName: profile.name || 'Guest',
+            address,
+            pickupOtp: createOtp(),
+            deliveryOtp: createOtp(),
+            pickupVerified: false,
+            paymentConfirmed: false,
+          }
+        })
       }
 
-      setOrders(list => [order, ...list])
+      setOrders(list => [...orders, ...list])
       setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
-      return order
+      return orders[0] ?? null
     },
-    [cart.shopId, cart.deliveryDistanceKm, cartLines, cartTotal, profile.name],
+    [cart.shopId, cart.deliveryDistanceKm, cartLines, profile.name],
   )
 
   const reorder = useCallback(
@@ -176,7 +232,37 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   )
 
   const setOrderStatus = useCallback((orderId: string, status: OrderStatus, riderName?: string) => {
-    setOrders(list => list.map(o => (o.id === orderId ? { ...o, status, riderName: riderName ?? o.riderName } : o)))
+    setOrders(list => {
+      const selected = list.find(order => order.id === orderId)
+      if (!selected) return list
+      const currentRider = riderName ?? selected.riderName ?? (profile.role === 'rider' && profile.name ? profile.name : 'Sunil (you)')
+      const riderBusy = list.some(order => order.id !== orderId && order.riderName === currentRider && ['ready', 'picked'].includes(order.status))
+      if (status === 'ready' && riderBusy && !selected.riderName) return list
+      return list.map(order => order.id === orderId ? {
+        ...order,
+        status,
+        riderName: status === 'ready' ? (riderBusy ? undefined : currentRider) : (riderName ?? order.riderName),
+        pickupOtp: status === 'ready' ? createOtp() : order.pickupOtp,
+      } : order)
+    })
+  }, [profile.name, profile.role])
+
+  const verifyOrderOtp = useCallback((orderId: string, phase: 'pickup' | 'delivery', code: string) => {
+    const currentOrder = orders.find(order => order.id === orderId)
+    const expected = phase === 'pickup' ? currentOrder?.pickupOtp : currentOrder?.deliveryOtp
+    if (!currentOrder || !expected || code.trim() !== expected || (phase === 'delivery' && !currentOrder.paymentConfirmed)) return false
+    setOrders(list => list.map(order => order.id !== orderId ? order : phase === 'pickup'
+      ? { ...order, pickupVerified: true, status: 'picked' }
+      : { ...order, status: 'delivered' }))
+    return true
+  }, [orders])
+
+  const confirmOrderPayment = useCallback((orderId: string) => {
+    setOrders(list => list.map(order => order.id === orderId && order.status === 'picked' ? { ...order, paymentConfirmed: true } : order))
+  }, [])
+
+  const remitOrderToSeller = useCallback((orderId: string) => {
+    setOrders(list => list.map(order => order.id === orderId && order.status === 'delivered' && order.paymentConfirmed ? { ...order, cashRemittedToSeller: true } : order))
   }, [])
 
   const toggleShopOpen = useCallback((shopId: string) => {
@@ -214,13 +300,18 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     profile,
     setOrders,
     setProfile,
+    setCatalogData,
     addItem,
+    addCatalogItem,
     removeItem,
     setDeliveryDistance,
     resolveConflict,
     placeOrder,
     reorder,
     setOrderStatus,
+    verifyOrderOtp,
+    confirmOrderPayment,
+    remitOrderToSeller,
     toggleShopOpen,
     toggleStock,
     addProduct,
