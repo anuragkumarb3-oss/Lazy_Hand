@@ -24,9 +24,9 @@ Do not move the Next.js app, database, or uploads onto the VPS as an assumption.
 
 ### WhatsApp provider decision
 
-There is no bridge endpoint documented or wired into this repository. The existing app only stores WhatsApp preferences; it does not send WhatsApp messages. Supabase OTP calls currently request SMS (`signInWithOtp` with a phone number and `verifyOtp` with `type: 'sms'`). Do not silently switch OTP delivery to WhatsApp.
+The owner has selected Baileys QR pairing and says an existing VPS bridge is available. However, no bridge endpoint, repository/process location, API contract, or authenticated pairing route is documented or wired into this repository. The app currently only stores WhatsApp preferences; it does not send WhatsApp messages. Supabase OTP calls request SMS (`signInWithOtp` with a phone number and `verifyOtp` with `type: 'sms'`). Do not silently switch OTP delivery to WhatsApp, and do not assume the existing bridge is safe or reachable until it is inspected.
 
-For production authentication and business notifications, prefer the official WhatsApp Business Platform / Cloud API or a supported provider. Baileys is an unofficial WhatsApp Web client, can break without notice, and may cause the linked account to be restricted. Use Baileys only after the owner explicitly accepts that operational/platform risk and confirms the account is authorized for this use. Never use a personal number or send unsolicited messages.
+Baileys is an unofficial WhatsApp Web client, can break without notice, and may cause the linked account to be restricted. The owner's selection authorizes investigating the existing Baileys bridge, not exposing a new public pairing interface, changing production auth delivery, or pairing an account before the existing service, account authorization, access controls, consent, and rollback are verified. Prefer the official WhatsApp Business Platform / Cloud API for production authentication and business notifications. Never use a personal number or send unsolicited messages.
 
 ## Ask the owner before setup
 
