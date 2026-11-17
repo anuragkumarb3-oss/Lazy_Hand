@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { createClient } from '@/lib/supabase/client'
 import { CakeSlice, Carrot, ChevronDown, ChevronRight, Clock, Cookie, CupSoda, House, IceCreamCone, MapPin, Milk, Package, Pizza, Sandwich, Search, Share2, ShoppingBag, ShoppingBasket, Soup, Star, Store, Utensils, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { categories, categoryById, rupee, type CategoryId, type Product, type Shop } from './data'
@@ -95,6 +94,13 @@ export function ConflictSheet() {
 type DynamicCategory = { id: string; name: string; scope: 'general' | 'restaurant'; image_url: string | null; icon: string | null; display_order: number }
 
 type HomeSection = 'All' | 'Grocery & Kitchen' | 'Snacks & Drinks' | 'Fresh' | 'Daily essentials'
+type CatalogResponse = { categories: BrowserCategory[]; products: BrowserProduct[] }
+
+async function fetchCatalog(): Promise<CatalogResponse> {
+  const response = await fetch('/api/catalog', { cache: 'no-store' })
+  if (!response.ok) throw new Error('Catalog could not be loaded.')
+  return response.json() as Promise<CatalogResponse>
+}
 
 const homeSections: { name: HomeSection; categories: string[]; Icon: typeof Store }[] = [
   { name: 'All', categories: [], Icon: Store },
@@ -114,11 +120,8 @@ function categoryIdForName(name: string) {
 
 export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: string; onChangeLocation: () => void; onOpenStore: (id: string) => void }) {
   const { shops, products } = useLazyHand()
-  const { data: liveCategories = [] } = useSWR('home-catalog-categories', async () => {
-    const { data, error } = await createClient().from('catalog_categories').select('id,name,scope,image_url,icon,display_order').eq('scope', 'general').eq('is_active', true).eq('is_visible', true).order('display_order')
-    if (error) throw error
-    return data as DynamicCategory[]
-  })
+  const { data: catalog } = useSWR('home-catalog-categories', fetchCatalog)
+  const liveCategories = catalog?.categories.filter(category => category.scope === 'general') ?? []
   const [query, setQuery] = useState('')
   const [activeSection, setActiveSection] = useState<HomeSection>('All')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
@@ -263,16 +266,13 @@ function CategoryIcon({ category, restaurant }: { category: BrowserCategory; res
 }
 
 export function CategoriesScreen() {
-  const { data: categories = [], error: categoryError, isLoading: categoriesLoading } = useSWR<BrowserCategory[]>('browser-catalog-categories', async () => {
-    const { data, error } = await createClient().from('catalog_categories').select('id,name,scope,parent_id,image_url,icon,display_order').eq('is_active', true).eq('is_visible', true).order('display_order').order('name')
-    if (error) throw error
-    return data as BrowserCategory[]
-  })
-  const { data: products = [], error: productError, isLoading: productsLoading } = useSWR<BrowserProduct[]>('browser-catalog-products', async () => {
-    const { data, error } = await createClient().rpc('get_public_catalog_products')
-    if (error) throw error
-    return data as BrowserProduct[]
-  })
+  const { data: catalog, error: catalogError, isLoading } = useSWR('/api/catalog', fetchCatalog)
+  const categories = catalog?.categories ?? []
+  const products = catalog?.products ?? []
+  const categoryError = catalogError
+  const productError = catalogError
+  const categoriesLoading = isLoading
+  const productsLoading = isLoading
   const { cart, addCatalogItem, removeItem } = useLazyHand()
   const [scope, setScope] = useState<'general' | 'restaurant'>('general')
   const [selectedByScope, setSelectedByScope] = useState<Record<'general' | 'restaurant', string | null>>({ general: null, restaurant: null })

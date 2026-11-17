@@ -641,13 +641,10 @@ function makeClosedWeek(): ShopHourDraft[] {
 
 function ShopHoursSettings() {
   const { data: savedHours, error: loadError, isLoading, mutate } = useSWR('seller-shop-hours', async () => {
-    const supabase = createClient()
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError) throw userError
-    if (!user) throw new Error('Sign in again to load shop hours.')
-    const { data, error } = await supabase.from('shop_operating_hours').select('day_of_week,opens_at,closes_at,is_closed').eq('user_id', user.id).order('day_of_week')
-    if (error) throw error
-    return data as ShopHour[]
+    const response = await fetch('/api/shop-hours', { cache: 'no-store' })
+    if (!response.ok) throw new Error('Sign in with an approved seller account to load shop hours.')
+    const result = await response.json() as { hours: ShopHour[] }
+    return result.hours
   })
   const [draft, setDraft] = useState<ShopHourDraft[]>(makeClosedWeek)
   const [editing, setEditing] = useState(false)
@@ -668,29 +665,19 @@ function ShopHoursSettings() {
   const saveHours = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSaving(true); setFailure(''); setMessage('')
-    const supabase = createClient()
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
-      setSaving(false)
-      setFailure('Sign in again before saving your shop hours.')
-      return
-    }
     const invalidDay = draft.find(hours => !hours.is_closed && (!hours.opens_at || !hours.closes_at || hours.opens_at === hours.closes_at))
     if (invalidDay) {
       setSaving(false)
       setFailure(`Add different opening and closing times for ${WEEKDAYS[invalidDay.day_of_week]}.`)
       return
     }
-    const rows = draft.map(hours => ({
-      ...hours,
-      user_id: user.id,
-      opens_at: hours.is_closed ? null : hours.opens_at,
-      closes_at: hours.is_closed ? null : hours.closes_at,
-      updated_at: new Date().toISOString(),
-    }))
-    const { error } = await supabase.from('shop_operating_hours').upsert(rows, { onConflict: 'user_id,day_of_week' })
+    const response = await fetch('/api/shop-hours', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hours: draft }),
+    })
     setSaving(false)
-    if (error) {
+    if (!response.ok) {
       setFailure('Shop hours could not be saved. Confirm your seller account is approved, then try again.')
       return
     }

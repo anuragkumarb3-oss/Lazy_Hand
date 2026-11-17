@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   billFor,
@@ -80,6 +80,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [conflictProductId, setConflictProductId] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
+  const orderAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
 
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products])
   const shopById = useMemo(() => Object.fromEntries(shops.map(s => [s.id, s])), [shops])
@@ -159,18 +160,24 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
       let orders: Order[]
 
       if (user) {
+        const requestBody = {
+          stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
+          deliveryDistanceKm: cart.deliveryDistanceKm,
+          address,
+        }
+        const fingerprint = JSON.stringify(requestBody)
+        if (!orderAttempt.current || orderAttempt.current.fingerprint !== fingerprint) {
+          orderAttempt.current = { fingerprint, key: crypto.randomUUID() }
+        }
         const response = await fetch('/api/orders', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
-            deliveryDistanceKm: cart.deliveryDistanceKm,
-            address,
-          }),
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': orderAttempt.current.key },
+          body: JSON.stringify(requestBody),
         })
         const result = await response.json().catch(() => null) as { orders?: Order[]; order?: Order; error?: string } | null
         const savedOrders = result?.orders ?? (result?.order ? [result.order] : [])
         if (!response.ok || savedOrders.length !== groupedLines.length) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
+        orderAttempt.current = null
         orders = savedOrders.map(order => ({ ...order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }))
       } else {
         orders = groupedLines.map(([shopId, lines], index) => {

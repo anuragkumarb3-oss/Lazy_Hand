@@ -40,29 +40,24 @@ type SellerApplication = {
   requested_at: string
   profile?: { name: string | null; phone: string | null; shop_name: string | null }
 }
-type SellerProfileSummary = { id: string; name: string | null; phone: string | null; shop_name: string | null }
 const supabase = createClient()
-const categoryFetcher = async () => {
-  const { data, error } = await supabase.from('catalog_categories').select('id,name,scope,parent_id,business_types,is_active,is_visible,display_order,image_url,icon').order('display_order').order('name')
-  if (error) throw error
-  return data as Category[]
-}
-const itemFetcher = async () => {
-  const { data, error } = await supabase.from('catalog_products').select('id,owner_id,category_id,product_type,name,description,unit,price,stock,images,variants,is_vegetarian,is_available,addons').order('created_at', { ascending: false })
-  if (error) throw error
-  return data as CatalogItem[]
+type ManagementData = { categories: Category[]; products: CatalogItem[]; applications: SellerApplication[] }
+const managementFetcher = async (url: string): Promise<ManagementData> => {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error('Catalog data could not be loaded.')
+  return response.json() as Promise<ManagementData>
 }
 
-const sellerApplicationsFetcher = async (): Promise<SellerApplication[]> => {
-  const { data: applications, error } = await supabase.from('seller_applications').select('user_id,status,requested_at').eq('status', 'pending').order('requested_at')
-  if (error) throw error
-  const applicationRows = (applications ?? []) as Omit<SellerApplication, 'profile'>[]
-  if (!applicationRows.length) return []
-  const { data: profiles, error: profilesError } = await supabase.from('profiles').select('id,name,phone,shop_name').in('id', applicationRows.map(application => application.user_id))
-  if (profilesError) throw profilesError
-  const profileRows = (profiles ?? []) as SellerProfileSummary[]
-  const profileById = new Map(profileRows.map(profile => [profile.id, profile]))
-  return applicationRows.map(application => ({ ...application, profile: profileById.get(application.user_id) }))
+async function mutateCatalog(payload: Record<string, unknown>) {
+  const response = await fetch('/api/catalog/manage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const result = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(result?.error || 'Catalog update could not be saved.')
+  }
 }
 
 function useIdentity() {
@@ -70,8 +65,10 @@ function useIdentity() {
     const { data: { user }, error } = await supabase.auth.getUser()
     if (error) throw error
     if (!user) return null
-    const { data: profile } = await supabase.from('profiles').select('role,shop_type').eq('id', user.id).maybeSingle()
-    return { id: user.id, admin: user.app_metadata?.role === 'admin', role: profile?.role ?? 'customer', businessType: (profile?.shop_type ?? '').toLowerCase() }
+    const response = await fetch('/api/profile', { cache: 'no-store' })
+    if (!response.ok) throw new Error('Profile could not be loaded.')
+    const result = await response.json() as { profile: { role: string; shopType: string } | null }
+    return { id: user.id, admin: user.app_metadata?.role === 'admin', role: result.profile?.role ?? 'customer', businessType: (result.profile?.shopType ?? '').toLowerCase() }
   })
 }
 
@@ -81,8 +78,12 @@ function Notice({ children, error = false }: { children: React.ReactNode; error?
 
 export function CategoryManagement() {
   const identity = useIdentity()
-  const { data: categories = [], error, mutate } = useSWR('catalog-categories', categoryFetcher)
-  const { data: sellerApplications = [], error: applicationsError, mutate: mutateApplications } = useSWR(identity.data?.admin ? 'seller-applications' : null, sellerApplicationsFetcher)
+  const managementKey = identity.data?.admin ? '/api/catalog/manage?view=admin' : null
+  const { data: management, error, mutate } = useSWR(managementKey, managementFetcher)
+  const categories = management?.categories ?? []
+  const sellerApplications = management?.applications ?? []
+  const applicationsError = error
+  const mutateApplications = mutate
   const [businessTypes, setBusinessTypes] = useState<Record<string, string>>({})
   const [reviewingSeller, setReviewingSeller] = useState<string | null>(null)
   const [draft, setDraft] = useState<Category | null>(null)
@@ -92,15 +93,16 @@ export function CategoryManagement() {
 
   const reviewSeller = async (userId: string, approve: boolean) => {
     setReviewingSeller(userId); setFailure(''); setMessage('')
-    const { error: reviewError } = await supabase.rpc('admin_review_seller', {
-      target_user_id: userId,
-      approve,
-      assigned_business_type: approve ? businessTypes[userId] || 'grocery' : null,
-    })
+    try {
+      await mutateCatalog({ action: 'review-seller', userId, approve, businessType: approve ? businessTypes[userId] || 'grocery' : null })
+    } catch (reviewError) {
+      setReviewingSeller(null)
+      setFailure(reviewError instanceof Error ? reviewError.message : 'Seller request could not be reviewed.')
+      return
+    }
     setReviewingSeller(null)
-    if (reviewError) { setFailure(reviewError.message); return }
     setMessage(approve ? 'Seller approved and registered.' : 'Seller request declined.')
-    await Promise.all([mutateApplications(), mutate()])
+    await mutate()
   }
 
   const save = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -108,11 +110,14 @@ export function CategoryManagement() {
     if (!draft) return
     setBusy(true); setFailure(''); setMessage('')
     const payload = { name: draft.name.trim(), scope: draft.scope, parent_id: draft.parent_id || null, business_types: draft.business_types, is_active: draft.is_active, is_visible: draft.is_visible, display_order: draft.display_order, image_url: draft.image_url || null, icon: draft.icon || null }
-    const result = draft.id
-      ? await supabase.from('catalog_categories').update(payload).eq('id', draft.id)
-      : await supabase.from('catalog_categories').insert(payload)
+    try {
+      await mutateCatalog({ action: 'save-category', id: draft.id || undefined, ...payload })
+    } catch (saveError) {
+      setBusy(false)
+      setFailure(saveError instanceof Error ? saveError.message : 'Category could not be saved.')
+      return
+    }
     setBusy(false)
-    if (result.error) { setFailure(result.error.message); return }
     setDraft(null); setMessage('Category saved. Customer and seller views will use the updated category list.'); await mutate()
   }
 
@@ -136,16 +141,25 @@ export function CategoryManagement() {
     const target = peers[index + direction]
     if (!target) return
     setBusy(true)
-    const first = await supabase.from('catalog_categories').update({ display_order: target.display_order }).eq('id', item.id)
-    const second = first.error ? first : await supabase.from('catalog_categories').update({ display_order: item.display_order }).eq('id', target.id)
-    setBusy(false)
-    if (second.error) setFailure(second.error.message); else await mutate()
+    try {
+      await mutateCatalog({ action: 'reorder-category', id: item.id, targetId: target.id })
+      await mutate()
+    } catch (reorderError) {
+      setFailure(reorderError instanceof Error ? reorderError.message : 'Category order could not be changed.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const remove = async (item: Category) => {
     if (!window.confirm(`Delete “${item.name}”? Categories used by menu or product items cannot be deleted; deactivate them instead.`)) return
-    const { error: deleteError } = await supabase.from('catalog_categories').delete().eq('id', item.id)
-    if (deleteError) setFailure(deleteError.message); else { setMessage('Category deleted.'); await mutate() }
+    try {
+      await mutateCatalog({ action: 'delete-category', id: item.id })
+      setMessage('Category deleted.')
+      await mutate()
+    } catch (deleteError) {
+      setFailure(deleteError instanceof Error ? deleteError.message : 'Category could not be deleted.')
+    }
   }
 
   if (identity.isLoading) return <div className="grid min-h-svh place-items-center"><LoaderCircle className="size-6 animate-spin" /></div>
@@ -178,8 +192,12 @@ export function CategoryManagement() {
 
 export function SellerCatalog() {
   const identity = useIdentity()
-  const { data: categories = [], error: categoriesError, isLoading: categoriesLoading } = useSWR('catalog-categories', categoryFetcher)
-  const { data: items = [], error, isLoading, mutate } = useSWR('catalog-products', itemFetcher)
+  const managementKey = identity.data?.role === 'shopkeeper' ? '/api/catalog/manage?view=seller' : null
+  const { data: management, error, isLoading, mutate } = useSWR(managementKey, managementFetcher)
+  const categories = management?.categories ?? []
+  const items = management?.products ?? []
+  const categoriesError = error
+  const categoriesLoading = isLoading
   const [categoryId, setCategoryId] = useState('')
   const [parentCategoryId, setParentCategoryId] = useState('')
   const [name, setName] = useState('')
@@ -225,17 +243,24 @@ export function SellerCatalog() {
     const parseList = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean).map(label => ({ name: label }))
     const payload = { owner_id: identity.data.id, category_id: categoryId, product_type: type, name: name.trim(), description: description.trim(), unit: unit.trim(), price: amount, stock: quantity, images, variants: parseList(variants), is_vegetarian: type === 'restaurant' ? vegetarian : null, is_available: quantity > 0, addons: type === 'restaurant' ? parseList(addons) : [] }
     setBusy(true)
-    const result = editingItem
-      ? await supabase.from('catalog_products').update(payload).eq('id', editingItem.id).eq('owner_id', identity.data.id)
-      : await supabase.from('catalog_products').insert(payload)
+    try {
+      await mutateCatalog({ action: 'save-product', id: editingItem?.id, ...payload })
+    } catch (saveError) {
+      setBusy(false)
+      setMessage(saveError instanceof Error ? saveError.message : 'Listing could not be saved.')
+      return
+    }
     setBusy(false)
-    if (result.error) { setMessage(result.error.message); return }
     setEditingItem(null); setCategoryId(''); setParentCategoryId(''); setName(''); setDescription(''); setUnit(''); setPrice(''); setStock('0'); setImages([]); setVariants(''); setAddons(''); setMessage(editingItem ? 'Listing updated.' : 'Listing saved.'); await mutate()
   }
 
   const toggleAvailability = async (item: CatalogItem) => {
-    const { error: updateError } = await supabase.from('catalog_products').update({ is_available: !item.is_available }).eq('id', item.id)
-    if (updateError) setMessage(updateError.message); else await mutate()
+    try {
+      await mutateCatalog({ action: 'toggle-product', id: item.id, isAvailable: !item.is_available })
+      await mutate()
+    } catch (updateError) {
+      setMessage(updateError instanceof Error ? updateError.message : 'Availability could not be updated.')
+    }
   }
 
   if (identity.isLoading) return <main className="grid min-h-svh place-items-center"><LoaderCircle className="size-6 animate-spin" /></main>
@@ -256,8 +281,11 @@ export function SellerCatalog() {
 }
 
 export function GeneralCategoryBrowse() {
-  const { data: categories = [], error: categoryError } = useSWR('catalog-categories', categoryFetcher)
-  const { data: items = [], error: itemError } = useSWR('catalog-products', itemFetcher)
+  const { data: catalog, error: catalogError } = useSWR('/api/catalog', managementFetcher)
+  const categories = catalog?.categories ?? []
+  const items = catalog?.products ?? []
+  const categoryError = catalogError
+  const itemError = catalogError
   const general = categories.filter(category => category.scope === 'general' && category.is_active && category.is_visible)
   const [active, setActive] = useState('')
   const selected = general.some(category => category.id === active) ? active : general[0]?.id
@@ -318,8 +346,11 @@ export function GeneralCategoryBrowse() {
 }
 
 export function RestaurantBrowse() {
-  const { data: categories = [], error: categoryError } = useSWR('catalog-categories', categoryFetcher)
-  const { data: items = [], error: itemError } = useSWR('catalog-products', itemFetcher)
+  const { data: catalog, error: catalogError } = useSWR('/api/catalog', managementFetcher)
+  const categories = catalog?.categories ?? []
+  const items = catalog?.products ?? []
+  const categoryError = catalogError
+  const itemError = catalogError
   const menuCategories = categories.filter(category => category.scope === 'restaurant' && category.is_active && category.is_visible)
   const [active, setActive] = useState('')
   const selected = active || menuCategories[0]?.id

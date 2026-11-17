@@ -19,7 +19,6 @@ import {
 import { CartBar, CategoriesScreen, ConflictSheet, CustomerHome, StoreScreen } from './lazyhand/customer-shop'
 import { CartScreen, OrderAgainScreen, PaymentScreen, ProfileScreen, TrackingScreen } from './lazyhand/customer-order'
 import { RiderDashboard, ShopkeeperDashboard } from './lazyhand/partners'
-import { LEGAL_POLICY_VERSION } from './lazyhand/legal'
 import { emptyProfile, LazyHandProvider, useLazyHand } from './lazyhand/store'
 import { BottomNav, LoadingScreen } from './lazyhand/ui'
 
@@ -253,20 +252,20 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
         throw new Error('Your account was verified, but we could not save your profile. Please try again.')
       }
     }
-    if (pendingPolicyKeys.length) {
-      const acceptedRole = pendingProfile?.role ?? verifiedProfile.role
-      const { error: acceptanceError } = await supabase.from('legal_policy_acceptances').upsert(
-        pendingPolicyKeys.map(policy_key => ({ user_id: data.user.id, role: acceptedRole, policy_key, policy_version: LEGAL_POLICY_VERSION })),
-        { onConflict: 'user_id,role,policy_key,policy_version', ignoreDuplicates: true },
-      )
-      if (acceptanceError) throw new Error('Your account is ready, but we could not record policy acceptance. Please verify your account again.')
-    }
-    if (requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
-      const { error: applicationError } = await supabase.from('seller_applications').insert({ user_id: data.user.id })
-      if (applicationError && applicationError.code !== '23505') {
-        throw new Error('Your account is ready, but your shopkeeper request could not be submitted. Please contact support.')
+    if (pendingPolicyKeys.length || requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
+      const onboardingResponse = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: pendingProfile?.role ?? verifiedProfile.role,
+          policyKeys: pendingPolicyKeys,
+        }),
+      })
+      if (!onboardingResponse.ok) {
+        throw new Error('Your account is ready, but onboarding could not be saved. Please try again.')
       }
-      setSellerRequestSubmitted(true)
+      const onboardingResult = await onboardingResponse.json() as { sellerRequestSubmitted: boolean }
+      setSellerRequestSubmitted(onboardingResult.sellerRequestSubmitted)
     }
 
     setAuthenticatedUserId(data.user.id)
