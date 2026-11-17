@@ -32,6 +32,7 @@ type LazyHandState = {
   profile: Profile
   setOrders: (orders: Order[]) => void
   setProfile: (profile: Profile) => void
+  setCatalogData: (shops: Shop[], products: Product[]) => void
   addItem: (productId: string) => void
   addCatalogItem: (product: Product, shop: Shop) => void
   removeItem: (productId: string) => void
@@ -81,6 +82,11 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
   const orderAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
+
+  const setCatalogData = useCallback((nextShops: Shop[], nextProducts: Product[]) => {
+    setShops(nextShops)
+    setProducts(nextProducts)
+  }, [])
 
   const productById = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products])
   const shopById = useMemo(() => Object.fromEntries(shops.map(s => [s.id, s])), [shops])
@@ -294,6 +300,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     profile,
     setOrders,
     setProfile,
+    setCatalogData,
     addItem,
     addCatalogItem,
     removeItem,

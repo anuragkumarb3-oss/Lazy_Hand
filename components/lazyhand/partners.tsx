@@ -13,6 +13,9 @@ const MANAGED_SHOP_ID = 'gupta'
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 type ShopHour = { day_of_week: number; opens_at: string | null; closes_at: string | null; is_closed: boolean }
 type ShopHourDraft = ShopHour
+type ShopSettings = { shop_timezone: string; shop_is_open_override: boolean | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null }
+type ShopSettingsResponse = { hours: ShopHour[]; settings: ShopSettings }
+const defaultShopSettings: ShopSettings = { shop_timezone: 'Asia/Kolkata', shop_is_open_override: null, delivery_estimate_min: null, delivery_estimate_max: null }
 
 function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: string; right?: React.ReactNode }) {
   return (
@@ -640,12 +643,13 @@ function makeClosedWeek(): ShopHourDraft[] {
 }
 
 function ShopHoursSettings() {
-  const { data: savedHours, error: loadError, isLoading, mutate } = useSWR('seller-shop-hours', async () => {
+  const { data: savedSettings, error: loadError, isLoading, mutate } = useSWR('seller-shop-hours', async () => {
     const response = await fetch('/api/shop-hours', { cache: 'no-store' })
     if (!response.ok) throw new Error('Sign in with an approved seller account to load shop hours.')
-    const result = await response.json() as { hours: ShopHour[] }
-    return result.hours
+    return response.json() as Promise<ShopSettingsResponse>
   })
+  const savedHours = savedSettings?.hours
+  const [settings, setSettings] = useState<ShopSettings>(defaultShopSettings)
   const [draft, setDraft] = useState<ShopHourDraft[]>(makeClosedWeek)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -653,10 +657,13 @@ function ShopHoursSettings() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    if (!savedHours) return
-    const byDay = new Map(savedHours.map(hours => [hours.day_of_week, hours]))
+    if (!savedSettings) return
+    const byDay = new Map(savedSettings.hours.map(hours => [hours.day_of_week, hours]))
     setDraft(WEEKDAYS.map((_, day_of_week) => byDay.get(day_of_week) ?? { day_of_week, opens_at: null, closes_at: null, is_closed: true }))
-  }, [savedHours])
+    setSettings(savedSettings.settings ?? defaultShopSettings)
+  }, [savedSettings])
+
+  const updateSettings = (patch: Partial<ShopSettings>) => setSettings(current => ({ ...current, ...patch }))
 
   const updateDay = (day: number, patch: Partial<ShopHourDraft>) => {
     setDraft(current => current.map(hours => hours.day_of_week === day ? { ...hours, ...patch } : hours))
@@ -674,7 +681,7 @@ function ShopHoursSettings() {
     const response = await fetch('/api/shop-hours', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hours: draft }),
+      body: JSON.stringify({ hours: draft, settings }),
     })
     setSaving(false)
     if (!response.ok) {
@@ -699,7 +706,13 @@ function ShopHoursSettings() {
         configured ? <ul className="mt-4 grid gap-2 sm:grid-cols-2">{WEEKDAYS.map((day, index) => { const hours = savedHours?.find(row => row.day_of_week === index); return <li key={day} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-3 py-2 text-sm"><span className="font-medium">{day}</span><span className="text-right text-muted-ink">{!hours || hours.is_closed ? 'Closed' : `${hours.opens_at?.slice(0, 5)} – ${hours.closes_at?.slice(0, 5)}`}</span></li> })}</ul> : <p className="mt-3 rounded-xl bg-cream px-3 py-3 text-sm text-muted-ink">Not configured yet. Add your usual opening and closing times for each day.</p>
       ) : (
         <form onSubmit={saveHours} className="mt-4 flex flex-col gap-2">
-          <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs leading-5 text-[#7C2D12]">Days start marked closed. Set each day carefully; saved hours may be used to show availability to customers.</p>
+          <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs leading-5 text-[#7C2D12]">Automatic status follows these hours unless you choose a manual override. Customer availability updates from this VPS-backed setting.</p>
+          <div className="grid gap-3 rounded-xl border border-line p-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs font-semibold">Shop timezone<input required value={settings.shop_timezone} onChange={event => updateSettings({ shop_timezone: event.target.value })} placeholder="Asia/Kolkata" className="h-10 rounded-lg border border-line px-3 text-sm" /><span className="font-normal text-muted-ink">Use an IANA timezone, such as Asia/Kolkata.</span></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Open status<select value={settings.shop_is_open_override === null ? 'automatic' : settings.shop_is_open_override ? 'open' : 'closed'} onChange={event => updateSettings({ shop_is_open_override: event.target.value === 'automatic' ? null : event.target.value === 'open' })} className="h-10 rounded-lg border border-line bg-white px-3 text-sm"><option value="automatic">Follow weekly hours</option><option value="open">Manually open</option><option value="closed">Manually closed</option></select></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Delivery estimate (minutes, minimum)<input type="number" min="1" max="240" value={settings.delivery_estimate_min ?? ''} onChange={event => updateSettings({ delivery_estimate_min: event.target.value ? Number(event.target.value) : null })} placeholder="30" className="h-10 rounded-lg border border-line px-3 text-sm" /></label>
+            <label className="flex flex-col gap-1 text-xs font-semibold">Delivery estimate (minutes, maximum)<input type="number" min="1" max="240" value={settings.delivery_estimate_max ?? ''} onChange={event => updateSettings({ delivery_estimate_max: event.target.value ? Number(event.target.value) : null })} placeholder="45" className="h-10 rounded-lg border border-line px-3 text-sm" /></label>
+          </div>
           {draft.map(hours => <fieldset key={hours.day_of_week} className="grid grid-cols-2 items-center gap-2 rounded-xl border border-line p-2.5 sm:grid-cols-[minmax(76px,1fr)_auto_minmax(90px,1fr)_minmax(90px,1fr)]">
             <legend className="sr-only">{WEEKDAYS[hours.day_of_week]} schedule</legend>
             <span className="text-xs font-semibold sm:text-sm">{WEEKDAYS[hours.day_of_week]}</span>
@@ -744,7 +757,7 @@ function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) 
       {role === 'Shopkeeper' && <ShopHoursSettings />}
 
       <section className="grid gap-3 sm:grid-cols-2" aria-label="Shop availability and payments">
-        <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Store className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Shop availability</h3></div><p className="mt-2 text-sm font-semibold">Not connected</p><p className="mt-1 text-xs leading-5 text-muted-ink">Live open/closed controls aren&apos;t linked to a seller shop record yet.</p></div>
+          <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Store className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Shop availability</h3></div><p className="mt-2 text-sm font-semibold">Managed by your weekly hours</p><p className="mt-1 text-xs leading-5 text-muted-ink">Set an automatic schedule or manually open/close your shop in the hours settings above. Customers see your live status and delivery estimate.</p></div>
         <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Banknote className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Payments & settlements</h3></div><p className="mt-2 text-sm font-semibold">No verified payout account</p><p className="mt-1 text-xs leading-5 text-muted-ink">Settlement history and bank details aren&apos;t available for this account.</p></div>
       </section>
 

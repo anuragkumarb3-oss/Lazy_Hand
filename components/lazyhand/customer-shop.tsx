@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { CakeSlice, Carrot, ChevronDown, ChevronRight, Clock, Cookie, CupSoda, House, IceCreamCone, MapPin, Milk, Package, Pizza, Sandwich, Search, Share2, ShoppingBag, ShoppingBasket, Soup, Star, Store, Utensils, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -119,8 +119,44 @@ function categoryIdForName(name: string) {
 }
 
 export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: string; onChangeLocation: () => void; onOpenStore: (id: string) => void }) {
-  const { shops, products } = useLazyHand()
-  const { data: catalog } = useSWR('home-catalog-categories', fetchCatalog)
+  const { shops, products, setCatalogData } = useLazyHand()
+  const { data: catalog, error: catalogError } = useSWR('home-catalog-categories', fetchCatalog)
+  useEffect(() => {
+    if (!catalog && !catalogError) return
+    if (!catalog) {
+      setCatalogData([], [])
+      return
+    }
+    const shopsById = new Map<string, Shop>()
+    const liveProducts = catalog.products.map(item => {
+      const eta = item.delivery_estimate_min && item.delivery_estimate_max
+        ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min`
+        : item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable'
+      if (!shopsById.has(item.owner_id)) {
+        shopsById.set(item.owner_id, {
+          id: item.owner_id,
+          name: item.shop_name,
+          kind: item.product_type === 'restaurant' ? 'Restaurant' : 'Local store',
+          hours: item.shop_open ? 'Open now' : 'Closed',
+          opensAt: item.shop_opens_at ?? 'later',
+          rating: 0,
+          eta,
+          open: item.shop_open,
+        })
+      }
+      const categoryName = catalog.categories.find(category => category.id === item.category_id)?.name ?? ''
+      return {
+        id: item.id,
+        shopId: item.owner_id,
+        name: item.name,
+        unit: item.unit,
+        price: Number(item.price),
+        category: categoryIdForName(categoryName) ?? 'snacks',
+        inStock: item.is_available && item.stock > 0,
+      } as Product
+    })
+    setCatalogData([...shopsById.values()], liveProducts)
+  }, [catalog, catalogError, setCatalogData])
   const liveCategories = catalog?.categories.filter(category => category.scope === 'general') ?? []
   const [query, setQuery] = useState('')
   const [activeSection, setActiveSection] = useState<HomeSection>('All')
@@ -197,7 +233,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
       </nav>
 
       <main className="mx-auto max-w-md px-4 pb-8">
-        <p role="status" className="pt-3 text-[11px] leading-4 text-muted-ink">Demo catalog: sample shops and legacy products are examples. Category lists come from your live catalog.</p>
+        <p role={catalogError ? 'alert' : 'status'} className="pt-3 text-[11px] leading-4 text-muted-ink">{catalogError ? 'Live shop availability could not be loaded. Please try again shortly.' : 'Shop status and delivery estimates update from each shop’s saved hours and settings.'}</p>
         {term ? (
           <section aria-labelledby="results-heading" className="mt-5">
             <h2 id="results-heading" className="text-xl font-bold">{results?.length ?? 0} result{results?.length === 1 ? '' : 's'}<span className="font-normal text-muted-ink"> for &ldquo;{query.trim()}&rdquo;</span></h2>
@@ -237,7 +273,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
                 const count = products.filter(product => product.shopId === shop.id && product.inStock).length
                 return <li key={shop.id}><button type="button" onClick={() => onOpenStore(shop.id)} className="flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left shadow-[0_5px_18px_-14px_#6B4A34] transition active:scale-[0.99]">
                   <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#FCE8E8] text-brand-deep' : 'bg-[#F1F1F1] text-muted-ink')}><Store className="size-5" aria-hidden="true" /></span>
-                  <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-semibold">{shop.name}</span><StatusPill tone={shop.open ? 'open' : 'closed'}>{shop.open ? 'Open' : 'Closed'}</StatusPill></span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-ink"><span className="flex items-center gap-0.5"><Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" /> {shop.rating}</span><span aria-hidden="true">·</span>{shop.open ? <span className="flex items-center gap-1 font-medium text-[#16A34A]"><Clock className="size-3" aria-hidden="true" />{shop.eta || 'Delivery time unavailable'}</span> : <span className="font-medium text-[#DC2626]">Closed · Opens {shop.opensAt}</span>}<span aria-hidden="true">·</span>{count} products</span></span>
+                  <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-semibold">{shop.name}</span><StatusPill tone={shop.open ? 'open' : 'closed'}>{shop.open ? 'Open' : 'Closed'}</StatusPill></span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-ink">{shop.rating > 0 && <><span className="flex items-center gap-0.5"><Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" /> {shop.rating}</span><span aria-hidden="true">·</span></>}{shop.open ? <span className="flex items-center gap-1 font-medium text-[#16A34A]"><Clock className="size-3" aria-hidden="true" />{shop.eta || 'Delivery time unavailable'}</span> : <span className="font-medium text-[#DC2626]">Closed · Opens {shop.opensAt}</span>}<span aria-hidden="true">·</span>{count} products</span></span>
                   <ChevronRight className="size-4 shrink-0 text-muted-ink" aria-hidden="true" />
                 </button></li>
               })}</ul>
@@ -251,7 +287,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
 }
 
 type BrowserCategory = { id: string; name: string; scope: 'general' | 'restaurant'; parent_id: string | null; image_url: string | null; icon: string | null; display_order: number }
-type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[] }
+type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[]; shop_open: boolean; shop_opens_at: string | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null; shop_timezone: string }
 
 const categoryIcons: Record<string, LucideIcon> = {
   'cake-slice': CakeSlice, carrot: Carrot, cookie: Cookie, 'cup-soda': CupSoda, house: House,
@@ -284,7 +320,12 @@ export function CategoriesScreen() {
   const visibleProducts = products.filter(product => product.category_id === activeCategory && product.product_type === (scope === 'restaurant' ? 'restaurant' : 'retail'))
 
   const add = (item: BrowserProduct) => {
-    const shop: Shop = { id: item.owner_id, name: item.shop_name, kind: scope === 'restaurant' ? 'Restaurant' : 'Local store', hours: 'Open today', opensAt: '', rating: 0, eta: 'Nearby', open: true }
+    const estimate = item.delivery_estimate_min && item.delivery_estimate_max
+      ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min`
+      : item.delivery_estimate_min
+        ? `${item.delivery_estimate_min}+ min`
+        : 'Estimate unavailable'
+    const shop: Shop = { id: item.owner_id, name: item.shop_name, kind: scope === 'restaurant' ? 'Restaurant' : 'Local store', hours: item.shop_open ? 'Open now' : 'Closed', opensAt: item.shop_opens_at ?? 'later', rating: 0, eta: estimate, open: item.shop_open }
     const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0 }
     addCatalogItem(product, shop)
   }
@@ -324,7 +365,9 @@ export function CategoriesScreen() {
                   <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-ink">{item.unit || item.shop_name}</p>
                   {item.variants?.length > 0 && <p className="mt-1 line-clamp-1 text-[9px] text-muted-ink">Options: {item.variants.map(option => option.name).filter(Boolean).join(', ')}</p>}
                   {item.addons?.length > 0 && <p className="line-clamp-1 text-[9px] text-muted-ink">Add-ons: {item.addons.map(option => option.name).filter(Boolean).join(', ')}</p>}
-                  <div className="mt-auto flex items-center justify-between gap-1 pt-2"><span className="text-xs font-extrabold">{rupee(Number(item.price))}</span><QtyControl qty={qty} onAdd={() => add(item)} onRemove={() => removeItem(item.id)} disabled={!item.is_available || item.stock <= 0} label={item.name} /></div>
+                  <div className="mt-auto flex items-center justify-between gap-1 pt-2"><span className="text-xs font-extrabold">{rupee(Number(item.price))}</span><QtyControl qty={qty} onAdd={() => add(item)} onRemove={() => removeItem(item.id)} disabled={!item.is_available || item.stock <= 0 || !item.shop_open} label={item.name} /></div>
+                  {!item.shop_open && <p className="mt-1 text-[10px] font-medium text-[#B91C1C]">Closed · opens {item.shop_opens_at ?? 'later'}</p>}
+                  {item.shop_open && <p className="mt-1 text-[10px] text-muted-ink">Delivery: {item.delivery_estimate_min && item.delivery_estimate_max ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min` : item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable'}</p>}
                 </div>
               </li>
             })}</ul> : <div className="rounded-xl border border-dashed border-line bg-white p-4 text-center"><p className="text-xs font-semibold">No items in this category yet</p><p className="mt-1 text-[10px] leading-4 text-muted-ink">Available listings will appear here when a seller adds them.</p></div>}
