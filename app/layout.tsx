@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 
 export const metadata: Metadata = {
   title: 'LazyHand | Local shops, local delivery',
-  description: 'Browse live, admin-managed neighborhood shop categories and separate restaurant menus in LazyHand.',
+  description: 'Shop neighborhood stores and restaurants, with simple transparent delivery pricing.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -35,7 +35,7 @@ export const viewport: Viewport = {
   userScalable: true,
   viewportFit: 'cover',
   colorScheme: 'light',
-  themeColor: '#F97316',
+  themeColor: '#DC2626',
 }
 
 export default function RootLayout({

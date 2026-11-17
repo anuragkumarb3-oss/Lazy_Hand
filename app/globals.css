@@ -154,13 +154,13 @@
 }
 
 @theme {
-  --color-brand: #f97316;
-  --color-brand-deep: #c2410c;
-  --color-cream: #faf7f2;
+  --color-brand: #dc2626;
+  --color-brand-deep: #991b1b;
+  --color-cream: #fff8f7;
   --color-ink: #252c37;
   --color-muted-ink: #6b717b;
-  --color-line: #ece6de;
-  --color-peach: #fff0e2;
+  --color-line: #f0dddd;
+  --color-peach: #fff0f0;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 

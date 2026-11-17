@@ -106,6 +106,7 @@ export type Order = {
   sellerDeliveryDeduction: number
   sellerPayout: number
   total: number
+  multiStoreSurcharge?: number
   payment: Payment
   status: OrderStatus
   placedAt: string
@@ -120,11 +121,15 @@ export type Order = {
 }
 
 export const DEFAULT_DELIVERY_DISTANCE_KM = 4
-export const FREE_DELIVERY_THRESHOLD = 299
+export const FREE_DELIVERY_THRESHOLD = 199
 
-export const CUSTOMER_DELIVERY_FEE = 20
-export const SELLER_DELIVERY_FEE_BELOW_THRESHOLD = 15
-export const SELLER_DELIVERY_FEE_AT_THRESHOLD = 29
+export const CUSTOMER_DELIVERY_FEE = 40
+export const SELLER_DELIVERY_FEE_BELOW_THRESHOLD = 0
+export const SELLER_DELIVERY_FEE_AT_THRESHOLD = 0
+export const MULTI_STORE_SURCHARGE = 39
+export const PLATFORM_FEE_THRESHOLD = 100
+export const DEFAULT_PLATFORM_FEE = 15
+export const MAX_PLATFORM_FEE = 20
 
 export const DELIVERY_SLABS = [
   { label: '0–2 km', maxDistanceKm: 2, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 20 },
@@ -135,37 +140,29 @@ export const DELIVERY_SLABS = [
 ] as const
 
 export const PLATFORM_FEE_SLABS = [
-  { label: 'Below ₹179', maxOrderValue: 178, fee: 5 },
-  { label: '₹179–₹299', maxOrderValue: 299, fee: 9 },
-  { label: '₹300–₹499', maxOrderValue: 499, fee: 14 },
-  { label: '₹500–₹799', maxOrderValue: 799, fee: 19 },
-  { label: '₹800–₹999', maxOrderValue: 999, fee: 24 },
-  { label: '₹1,000+', maxOrderValue: Number.POSITIVE_INFINITY, fee: 29 },
+  { label: 'Above ₹100', maxOrderValue: Number.POSITIVE_INFINITY, fee: DEFAULT_PLATFORM_FEE },
 ] as const
 
 export function deliverySlabFor(distanceKm: number) {
   return DELIVERY_SLABS.find(slab => distanceKm <= slab.maxDistanceKm) ?? DELIVERY_SLABS[DELIVERY_SLABS.length - 1]
 }
 
-export function platformFeeFor(itemTotal: number) {
-  if (itemTotal <= 0) return 0
-  return PLATFORM_FEE_SLABS.find(slab => itemTotal <= slab.maxOrderValue)?.fee ?? PLATFORM_FEE_SLABS[PLATFORM_FEE_SLABS.length - 1].fee
+export function platformFeeFor(itemTotal: number, configuredFee = DEFAULT_PLATFORM_FEE) {
+  if (itemTotal <= PLATFORM_FEE_THRESHOLD) return 0
+  return Math.max(15, Math.min(MAX_PLATFORM_FEE, Math.round(configuredFee)))
 }
 
-export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false) {
+export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false, options: { multiStore?: boolean; platformFee?: number } = {}) {
   const slab = deliverySlabFor(distanceKm)
-  const qualifiesForFreeDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
-  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers || qualifiesForFreeDelivery ? 0 : CUSTOMER_DELIVERY_FEE
-  const deliveryFee = deliveryFeeBeforeDiscount
-  const sellerDeliveryDeduction = itemTotal <= 0 || shopSelfDelivers
-    ? 0
-    : qualifiesForFreeDelivery
-      ? SELLER_DELIVERY_FEE_AT_THRESHOLD
-      : SELLER_DELIVERY_FEE_BELOW_THRESHOLD
-  const deliveryDiscount = 0
-  const platformFeeBeforeDiscount = platformFeeFor(itemTotal)
-  const platformFee = platformFeeBeforeDiscount > 0 && platformFeeBeforeDiscount < 20 ? 0 : platformFeeBeforeDiscount
-  const platformDiscount = platformFeeBeforeDiscount - platformFee
+  const discountedDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
+  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers || options.multiStore ? 0 : CUSTOMER_DELIVERY_FEE
+  const deliveryFee = discountedDelivery && deliveryFeeBeforeDiscount > 0 ? deliveryFeeBeforeDiscount / 2 : deliveryFeeBeforeDiscount
+  const sellerDeliveryDeduction = 0
+  const deliveryDiscount = deliveryFeeBeforeDiscount - deliveryFee
+  const platformFeeBeforeDiscount = options.multiStore ? 0 : platformFeeFor(itemTotal, options.platformFee)
+  const platformFee = platformFeeBeforeDiscount
+  const platformDiscount = 0
+  const multiStoreSurcharge = options.multiStore && itemTotal > 0 ? MULTI_STORE_SURCHARGE : 0
   return {
     itemTotal,
     deliveryFeeBeforeDiscount,
@@ -174,11 +171,12 @@ export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANC
     platformFeeBeforeDiscount,
     platformDiscount,
     platformFee,
+    multiStoreSurcharge,
     deliveryDistanceKm: distanceKm,
     riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
     sellerDeliveryDeduction,
-    sellerPayout: Math.max(0, itemTotal - sellerDeliveryDeduction),
-    total: itemTotal + deliveryFee + platformFee,
+    sellerPayout: itemTotal,
+    total: itemTotal + deliveryFee + platformFee + multiStoreSurcharge,
   }
 }
 

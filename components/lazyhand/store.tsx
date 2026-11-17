@@ -95,12 +95,12 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
       const product = productById[productId]
       if (!product || !product.inStock || !shopById[product.shopId]?.open) return
       setCart(current => {
-        const hasItems = Object.values(current.items).some(q => q > 0)
-        if (hasItems && current.shopId !== product.shopId) {
+        const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
+        if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
           setConflictProductId(productId)
           return current
         }
-        return { ...current, shopId: product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
+        return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
       })
     },
     [productById, shopById],
@@ -122,7 +122,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     (replace: boolean) => {
       if (replace && conflictProductId) {
         const product = productById[conflictProductId]
-        setCart({ shopId: product.shopId, items: { [conflictProductId]: 1 }, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
+        setCart(current => ({ ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [conflictProductId]: Math.min((current.items[conflictProductId] ?? 0) + 1, 20) } }))
       }
       setConflictProductId(null)
     },
@@ -132,48 +132,63 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const placeOrder = useCallback(
     async (payment: Payment, address: string) => {
       if (!cart.shopId || cartLines.length === 0) return null
+      const groupedLines = Array.from(cartLines.reduce((groups, line) => {
+        const group = groups.get(line.product.shopId) ?? []
+        group.push(line)
+        groups.set(line.product.shopId, group)
+        return groups
+      }, new Map<string, typeof cartLines>()).entries())
+      const multiStore = groupedLines.length > 1
       const { data: { user }, error: authError } = await createClient().auth.getUser()
       if (authError) throw new Error('We could not verify your session. Please sign in again.')
-      let order: Order
+      let orders: Order[]
 
       if (user) {
         const response = await fetch('/api/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            shopId: cart.shopId,
-            lines: cartLines.map(({ product, qty }) => ({ productId: product.id, qty })),
+            stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
             deliveryDistanceKm: cart.deliveryDistanceKm,
             address,
           }),
         })
-        const result = await response.json().catch(() => null) as { order?: Order; error?: string } | null
-        if (!response.ok || !result?.order) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
-        order = { ...result.order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }
+        const result = await response.json().catch(() => null) as { orders?: Order[]; order?: Order; error?: string } | null
+        const savedOrders = result?.orders ?? (result?.order ? [result.order] : [])
+        if (!response.ok || savedOrders.length !== groupedLines.length) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
+        orders = savedOrders.map(order => ({ ...order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }))
       } else {
-        orderCounter += 1
-        order = {
-          id: `LH${orderCounter}`,
-          shopId: cart.shopId,
-          lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
-          ...billFor(cartTotal, cart.deliveryDistanceKm),
-          payment,
-          status: 'placed',
-          placedAt: 'Today',
-          customerName: profile.name || 'Guest',
-          address,
-          pickupOtp: createOtp(),
-          deliveryOtp: createOtp(),
-          pickupVerified: false,
-          paymentConfirmed: false,
-        }
+        orders = groupedLines.map(([shopId, lines], index) => {
+          orderCounter += 1
+          const subtotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0)
+          const bill = billFor(subtotal, cart.deliveryDistanceKm, false, { multiStore })
+          if (multiStore && index > 0) {
+            bill.multiStoreSurcharge = 0
+            bill.total -= 39
+          }
+          return {
+            id: `LH${orderCounter}`,
+            shopId,
+            lines: lines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
+            ...bill,
+            payment,
+            status: 'placed',
+            placedAt: 'Today',
+            customerName: profile.name || 'Guest',
+            address,
+            pickupOtp: createOtp(),
+            deliveryOtp: createOtp(),
+            pickupVerified: false,
+            paymentConfirmed: false,
+          }
+        })
       }
 
-      setOrders(list => [order, ...list])
+      setOrders(list => [...orders, ...list])
       setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
-      return order
+      return orders[0] ?? null
     },
-    [cart.shopId, cart.deliveryDistanceKm, cartLines, cartTotal, profile.name],
+    [cart.shopId, cart.deliveryDistanceKm, cartLines, profile.name],
   )
 
   const reorder = useCallback(

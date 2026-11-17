@@ -79,13 +79,12 @@ export function ConflictSheet() {
         <span className="mx-auto grid size-12 place-items-center rounded-full bg-peach text-brand-deep">
           <ShoppingBag className="size-5" aria-hidden="true" />
         </span>
-        <h2 id="conflict-title" className="mt-3 text-center text-lg font-bold">Start a new cart?</h2>
+        <h2 id="conflict-title" className="mt-3 text-center text-lg font-bold">Add another store?</h2>
         <p className="mt-2 text-center text-sm leading-6 text-muted-ink text-pretty">
-          Your cart has items from <span className="font-semibold text-ink">{current.name}</span>. One rider picks up from one shop, so adding from{' '}
-          <span className="font-semibold text-ink">{next.name}</span> clears the current cart.
+          Add items from <span className="font-semibold text-ink">{next.name}</span> alongside {current.name}. Multi-store checkout adds one ₹39 fee total; delivery and platform fees are free.
         </p>
         <div className="mt-5 flex flex-col gap-2">
-          <PrimaryButton onClick={() => resolveConflict(true)}>Clear cart &amp; add</PrimaryButton>
+          <PrimaryButton onClick={() => resolveConflict(true)}>Add store to cart</PrimaryButton>
           <SecondaryButton onClick={() => resolveConflict(false)}>Keep current cart</SecondaryButton>
         </div>
       </div>
@@ -153,7 +152,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
 
   return (
     <div className="pb-40">
-      <header className="bg-gradient-to-b from-[#F9D66D] via-[#FCE8A6] to-[#FFF9E8] px-4 pb-5 pt-[max(env(safe-area-inset-top),16px)] text-ink">
+      <header className="bg-gradient-to-b from-[#FECACA] via-[#FEE2E2] to-[#FFF5F5] px-4 pb-5 pt-[max(env(safe-area-inset-top),16px)] text-ink">
         <div className="mx-auto max-w-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -182,11 +181,11 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
         </div>
       </header>
 
-      <nav aria-label="Shop sections" className="sticky top-0 z-[5] border-b border-line bg-[#FFF9E8]/95 backdrop-blur">
+      <nav aria-label="Shop sections" className="sticky top-0 z-[5] border-b border-line bg-[#FFF5F5]/95 backdrop-blur">
         <div className="mx-auto flex max-w-md gap-5 overflow-x-auto px-4 [scrollbar-width:none]">
           {homeSections.map(({ name, Icon }) => (
             <button key={name} type="button" onClick={() => { setActiveSection(name); setActiveCategory(null) }} aria-pressed={activeSection === name} className={cn('relative flex min-h-[76px] shrink-0 flex-col items-center justify-center gap-1.5 px-1 text-[11px] font-medium transition', activeSection === name ? 'text-ink' : 'text-muted-ink')}>
-              <Icon className={cn('size-6', activeSection === name && 'fill-[#F4CA4F]/35')} strokeWidth={activeSection === name ? 2.4 : 1.8} aria-hidden="true" />
+              <Icon className={cn('size-6', activeSection === name && 'fill-[#DC2626]/20')} strokeWidth={activeSection === name ? 2.4 : 1.8} aria-hidden="true" />
               <span className="max-w-24 truncate">{name}</span>
               {activeSection === name && <span className="absolute inset-x-0 bottom-0 h-1 rounded-t-full bg-ink" />}
             </button>
