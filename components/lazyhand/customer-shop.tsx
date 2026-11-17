@@ -204,6 +204,16 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
   }, [catalog, catalogError, setCatalogData])
   const liveCategories = catalog?.categories.filter(category => category.scope === 'general') ?? []
   const [query, setQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [suggestionIndex, setSuggestionIndex] = useState(0)
+  const searchSuggestions = ['atta', 'cold drinks', 'chips', 'milk', 'pizza', 'ice cream']
+  useEffect(() => {
+    if (query || searchFocused) return
+    const timer = window.setInterval(() => {
+      setSuggestionIndex(index => (index + 1) % searchSuggestions.length)
+    }, 2500)
+    return () => window.clearInterval(timer)
+  }, [query, searchFocused, searchSuggestions.length])
   const [activeSection, setActiveSection] = useState<HomeSection>('All')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const term = query.trim().toLowerCase()
@@ -258,8 +268,10 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
               type="search"
               value={query}
               onChange={event => setQuery(event.target.value)}
-              placeholder='Search "milk", "atta", "chips"'
-              className="h-full min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted-ink/70"
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              placeholder={`Search "${searchSuggestions[suggestionIndex]}"...`}
+              className="search-placeholder-fade h-full min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted-ink/70"
             />
             {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X className="size-4" aria-hidden="true" /></button>}
           </div>

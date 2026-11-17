@@ -4,6 +4,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@keyframes search-placeholder-fade {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+.search-placeholder-fade::placeholder {
+  animation: search-placeholder-fade 360ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-placeholder-fade::placeholder { animation: none; }
+}
+
 @theme inline {
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
