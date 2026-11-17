@@ -118,7 +118,11 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
               <li key={product.id} className="flex flex-col border-b border-line last:border-b-0">
                 {(index === 0 || cartLines[index - 1].product.shopId !== product.shopId) && <p className="flex items-center gap-2 border-b border-line py-3 text-xs font-semibold text-muted-ink"><Store className="size-3.5" aria-hidden="true" />{shopById[product.shopId]?.name ?? 'Local store'}</p>}
                 <div className="flex items-center gap-3 py-3">
-                <ProductTile category={product.category} size="sm" />
+                {product.imageUrl ? (
+                  <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-12 shrink-0 rounded-xl bg-[#F4F1EC] object-cover" />
+                ) : (
+                  <ProductTile category={product.category} size="sm" />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">{product.name}</p>
                   <p className="text-xs text-muted-ink">{product.unit}</p>
@@ -160,7 +164,11 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
               <ul>
                 {suggestions.map(product => (
                   <li key={product.id} className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
-                    <ProductTile category={product.category} size="sm" />
+                {product.imageUrl ? (
+                  <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-12 shrink-0 rounded-xl bg-[#F4F1EC] object-cover" />
+                ) : (
+                  <ProductTile category={product.category} size="sm" />
+                )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{product.name}</p>
                       <p className="text-xs text-muted-ink">{product.unit} · {rupee(product.price)}</p>
