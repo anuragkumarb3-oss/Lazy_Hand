@@ -233,8 +233,8 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
               <ul className="mt-3 flex flex-col gap-2.5">{sortedShops.map(shop => {
                 const count = products.filter(product => product.shopId === shop.id && product.inStock).length
                 return <li key={shop.id}><button type="button" onClick={() => onOpenStore(shop.id)} className="flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left shadow-[0_5px_18px_-14px_#6B4A34] transition active:scale-[0.99]">
-                  <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-peach text-brand-deep' : 'bg-[#F1EFEB] text-muted-ink')}><Store className="size-5" aria-hidden="true" /></span>
-                  <span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-sm font-semibold">{shop.name}</span><StatusPill tone={shop.open ? 'open' : 'closed'}>{shop.open ? 'Open' : 'Closed'}</StatusPill></span><span className="mt-1 flex items-center gap-2 text-xs text-muted-ink"><span className="flex items-center gap-0.5"><Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" /> {shop.rating}</span><span aria-hidden="true">·</span>{shop.open ? shop.eta : `Opens ${shop.opensAt}`}<span aria-hidden="true">·</span>{count} items</span></span>
+                  <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#FCE8E8] text-brand-deep' : 'bg-[#F1F1F1] text-muted-ink')}><Store className="size-5" aria-hidden="true" /></span>
+                  <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-semibold">{shop.name}</span><StatusPill tone={shop.open ? 'open' : 'closed'}>{shop.open ? 'Open' : 'Closed'}</StatusPill></span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-ink"><span className="flex items-center gap-0.5"><Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" /> {shop.rating}</span><span aria-hidden="true">·</span>{shop.open ? <span className="flex items-center gap-1 font-medium text-[#16A34A]"><Clock className="size-3" aria-hidden="true" />{shop.eta || 'Delivery time unavailable'}</span> : <span className="font-medium text-[#DC2626]">Closed · Opens {shop.opensAt}</span>}<span aria-hidden="true">·</span>{count} products</span></span>
                   <ChevronRight className="size-4 shrink-0 text-muted-ink" aria-hidden="true" />
                 </button></li>
               })}</ul>
@@ -275,8 +275,9 @@ export function CategoriesScreen() {
   })
   const { cart, addCatalogItem, removeItem } = useLazyHand()
   const [scope, setScope] = useState<'general' | 'restaurant'>('general')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedByScope, setSelectedByScope] = useState<Record<'general' | 'restaurant', string | null>>({ general: null, restaurant: null })
   const scopedCategories = categories.filter(category => category.scope === scope)
+  const selectedId = selectedByScope[scope]
   const activeCategory = scopedCategories.some(category => category.id === selectedId) ? selectedId : scopedCategories[0]?.id ?? null
   const selectedCategory = scopedCategories.find(category => category.id === activeCategory)
   const visibleCategories = scopedCategories
@@ -293,15 +294,15 @@ export function CategoriesScreen() {
       <header className="shrink-0 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
         <h1 className="text-xl font-extrabold tracking-tight">Explore</h1>
         <p className="mt-1 text-xs text-muted-ink">Browse local shops and restaurant menus.</p>
-        <div className="mt-3 grid grid-cols-2 rounded-xl bg-[#F3F4F6] p-1" role="tablist" aria-label="Shopping destination">
-          {(['general', 'restaurant'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={scope === value} onClick={() => { setScope(value); setSelectedId(null) }} className={cn('min-h-10 rounded-lg text-sm font-semibold transition', scope === value ? 'bg-brand text-white shadow-sm' : 'text-muted-ink hover:text-ink')}>{value === 'general' ? 'Stores' : 'Restaurants'}</button>)}
+        <div className="mt-3 grid h-11 grid-cols-2 rounded-full bg-[#F1F1F1] p-1" role="tablist" aria-label="Shopping destination">
+          {(['general', 'restaurant'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={scope === value} onClick={() => setScope(value)} className={cn('rounded-full px-3 text-sm font-semibold transition-colors duration-200', scope === value ? 'bg-brand text-white shadow-sm' : 'text-[#4B5563] hover:text-[#1F2937]')}>{value === 'general' ? 'Stores' : 'Restaurants'}</button>)}
         </div>
       </header>
       {(categoryError || productError) ? <p role="alert" className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">Catalog data couldn&apos;t be loaded. Please try again shortly.</p> : categoriesLoading || productsLoading ? <p role="status" className="m-4 text-sm text-muted-ink">Loading catalog…</p> : scopedCategories.length === 0 ? <div className="m-4 rounded-2xl border border-dashed border-line bg-white p-6 text-center"><h2 className="font-semibold">No {scope === 'general' ? 'store' : 'restaurant'} categories yet</h2><p className="mt-2 text-sm text-muted-ink">Categories published by LazyHand will appear here.</p></div> : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(78px,24%)_1fr] overflow-hidden">
           <aside aria-label={`${scope === 'general' ? 'Store' : 'Restaurant'} categories`} className="min-h-0 overflow-y-auto border-r border-line bg-white [scrollbar-width:thin]">
-            <nav className="flex flex-col gap-1 p-2" aria-label="Catalog categories">
-              {visibleCategories.map(category => <button key={category.id} type="button" aria-current={activeCategory === category.id ? 'true' : undefined} onClick={() => setSelectedId(category.id)} className={cn('relative flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-xl px-1.5 py-2 text-center transition', activeCategory === category.id ? 'bg-[#FCE8E8] text-brand-deep' : 'text-muted-ink hover:bg-[#F8F8F8]')}>
+            <nav className="flex flex-col gap-1 p-1.5" aria-label="Catalog categories">
+              {visibleCategories.map(category => <button key={category.id} type="button" aria-current={activeCategory === category.id ? 'true' : undefined} onClick={() => setSelectedByScope(current => ({ ...current, [scope]: category.id }))} className={cn('relative flex min-h-[72px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center transition', activeCategory === category.id ? 'bg-[#FCE8E8] text-brand-deep' : 'text-muted-ink hover:bg-[#F8F8F8]')}>
                 {activeCategory === category.id && <span aria-hidden="true" className="absolute inset-y-2 left-0 w-1 rounded-full bg-brand" />}
                 {category.image_url ? <img src={category.image_url} alt="" className="size-10 rounded-lg object-cover" /> : <span className="grid size-10 place-items-center rounded-lg bg-[#FCE8E8] text-brand-deep"><CategoryIcon category={category} restaurant={scope === 'restaurant'} /></span>}
                 <span className="line-clamp-2 text-[11px] font-semibold leading-tight">{category.name}</span>
