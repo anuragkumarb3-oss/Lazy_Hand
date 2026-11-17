@@ -2,14 +2,13 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import useSWR from 'swr'
-import { Banknote, Bike, Calculator, Check, ClipboardList, Clock3, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
+import { Banknote, Bike, Calculator, Check, ClipboardList, IndianRupee, MapPin, MessageCircle, Package, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { billFor, categories, categoryById, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, seedHistory, type CategoryId, type Order, type Product } from './data'
+import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
-import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
+import { BottomNav, PrimaryButton, SecondaryButton, StatusPill, Toggle } from './ui'
 
-const MANAGED_SHOP_ID = 'gupta'
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 type ShopHour = { day_of_week: number; opens_at: string | null; closes_at: string | null; is_closed: boolean }
 type ShopHourDraft = ShopHour
@@ -73,163 +72,155 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
   )
 }
 
-export function ShopkeeperDashboard({ onExit, previewMode = false }: { onExit: () => void; previewMode?: boolean }) {
-  const { products, shopById, profile, toggleShopOpen, toggleStock, addProduct, updateProduct } = useLazyHand()
+export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMode?: boolean }) {
+  const { profile } = useLazyHand()
   const [tab, setTab] = useState<'orders' | 'products' | 'earnings' | 'account'>('orders')
-  const [showProductForm, setShowProductForm] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [productQuery, setProductQuery] = useState('')
+  const [productAvailability, setProductAvailability] = useState('all')
+  const [productCategory, setProductCategory] = useState('all')
   const [showProfitCalculator, setShowProfitCalculator] = useState(false)
-  const [previewOrders, setPreviewOrders] = useState(() => seedHistory.filter(order => order.shopId === MANAGED_SHOP_ID))
-  const shop = shopById[MANAGED_SHOP_ID]
-  const shopOrders = previewMode ? previewOrders.filter(order => order.placedAt === 'Today') : []
-  const setPreviewOrderStatus = (orderId: string, status: Order['status']) => {
-    setPreviewOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order))
-  }
+  const [earningsRange, setEarningsRange] = useState<'today' | '7d' | '30d'>('7d')
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all')
+  const [orderDateFilter, setOrderDateFilter] = useState('all')
+  const [actionError, setActionError] = useState('')
+  const { data: sellerData, error: sellerDataError, isLoading: sellerDataLoading, mutate: refreshSellerData } = useSWR('/api/seller', async () => {
+    const response = await fetch('/api/seller')
+    if (!response.ok) throw new Error('Seller workspace could not be loaded.')
+    return response.json() as Promise<{ products: Array<{ id: string; category_id: string; name: string; unit: string; price: number | string; stock: number; is_available: boolean; low_stock_threshold: number; images: string[] }>; categories: Array<{ id: string; name: string }>; orders: Array<{ id: string; lines: Order['lines']; item_total: number | string; delivery_fee: number | string; platform_fee: number | string; seller_delivery_deduction: number | string; seller_payout: number | string; total: number | string; payment: 'cod'; status: Order['status']; customer_name: string; address: string; rider_name: string | null; placed_at: string }> }>
+  })
+  const shopOrders: Order[] = (sellerData?.orders ?? []).map(order => ({
+    id: order.id, shopId: '', lines: order.lines, itemTotal: Number(order.item_total), deliveryFee: Number(order.delivery_fee),
+    platformFee: Number(order.platform_fee), deliveryDistanceKm: 0, riderPayout: 0,
+    sellerDeliveryDeduction: Number(order.seller_delivery_deduction), sellerPayout: Number(order.seller_payout),
+    total: Number(order.total), payment: order.payment, status: order.status,
+    placedAt: order.placed_at, customerName: order.customer_name,
+    address: order.address, riderName: order.rider_name ?? undefined,
+  }))
   const incoming = shopOrders.filter(order => order.status === 'placed')
   const packing = shopOrders.filter(order => order.status === 'accepted')
   const ready = shopOrders.filter(order => order.status === 'ready')
   const outForDelivery = shopOrders.filter(order => order.status === 'picked')
   const completed = shopOrders.filter(order => order.status === 'delivered')
+  const visibleOrders = shopOrders.filter(order => {
+    const placed = new Date(order.placedAt)
+    const dateMatches = orderDateFilter === 'all' || (orderDateFilter === 'today' && placed.toDateString() === new Date().toDateString()) || (orderDateFilter === '7d' && placed >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)) || (orderDateFilter === '30d' && placed >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+    return dateMatches && (orderStatusFilter === 'all' || order.status === orderStatusFilter)
+  })
   const revenue = shopOrders.filter(order => order.status !== 'rejected').reduce((sum, order) => sum + order.itemTotal, 0)
-  const myProducts = previewMode ? products.filter(product => product.shopId === MANAGED_SHOP_ID) : []
-  const visibleProducts = myProducts.filter(product => product.name.toLowerCase().includes(productQuery.toLowerCase()))
-  const inStockCount = myProducts.filter(product => product.inStock).length
-  const openProductForm = () => {
-    if (!previewMode) return
-    setTab('products')
-    setEditingProduct(null)
-    setShowProductForm(true)
+  const myProducts = sellerData?.products ?? []
+  const visibleProducts = myProducts.filter(product => {
+    const statusMatches = productAvailability === 'all' || (productAvailability === 'in-stock' && product.stock > 0 && product.is_available) || (productAvailability === 'low-stock' && product.stock > 0 && product.stock <= product.low_stock_threshold) || (productAvailability === 'unavailable' && (!product.is_available || product.stock === 0))
+    return product.name.toLowerCase().includes(productQuery.toLowerCase()) && statusMatches && (productCategory === 'all' || product.category_id === productCategory)
+  })
+  const inStockCount = myProducts.filter(product => product.stock > 0 && product.is_available).length
+  const rangeStart = new Date()
+  rangeStart.setHours(0, 0, 0, 0)
+  if (earningsRange === '7d') rangeStart.setDate(rangeStart.getDate() - 6)
+  if (earningsRange === '30d') rangeStart.setDate(rangeStart.getDate() - 29)
+  const periodOrders = (sellerData?.orders ?? []).filter(order => new Date(order.placed_at) >= rangeStart && order.status !== 'rejected')
+  const salesByDay = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - (6 - index))
+    const total = (sellerData?.orders ?? []).filter(order => new Date(order.placed_at).toDateString() === date.toDateString() && order.status !== 'rejected').reduce((sum, order) => sum + Number(order.item_total), 0)
+    return { key: date.toISOString(), label: date.toLocaleDateString('en-IN', { weekday: 'short' }), total }
+  })
+  const updateOrderStatus = async (orderId: string, status: Order['status']) => {
+    setActionError('')
+    const response = await fetch('/api/seller', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, status }) })
+    if (!response.ok) {
+      setActionError('Order status could not be updated. Refresh and try again.')
+      return
+    }
+    await refreshSellerData()
   }
 
   return (
     <div className="min-h-svh bg-[#F7F8FA] pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-ink">
-      <PartnerHeader
-        eyebrow={previewMode ? 'Seller workspace · preview' : 'Seller workspace'}
-        title={previewMode ? shop.name : profile.shopName || 'Your shop'}
-        right={previewMode ? (
-          <div className="flex items-center gap-2 rounded-xl border border-line bg-[#F7F8FA] px-3 py-2">
-            <span className="text-xs font-semibold">{shop.open ? 'Open' : 'Closed'}</span>
-            <Toggle checked={shop.open} onChange={() => toggleShopOpen(shop.id)} label="Shop open for orders" />
-          </div>
-        ) : <span className="rounded-full bg-[#FCE8E8] px-3 py-1.5 text-xs font-semibold text-[#B91F1F]">Status unavailable</span>}
-      />
+      <PartnerHeader eyebrow="Seller workspace" title={profile.shopName || 'Your shop'} right={<span className="rounded-full border border-line bg-[#F7F8FA] px-3 py-1.5 text-xs font-semibold text-muted-ink">Shop account</span>} />
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
-        <section className="flex flex-col gap-1">
-          <p className="text-sm font-medium text-muted-ink">Welcome back</p>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Here&apos;s your shop at a glance</h1>
-        </section>
-
-        {previewMode && (
-          <div role="status" className="flex items-start gap-3 rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] px-4 py-3 text-sm text-[#7F1D1D]">
-            <Eye className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <p><strong>Preview data</strong> · Orders and product changes shown here are temporary examples, not live seller records.</p>
-          </div>
-        )}
-
-        <section aria-label="Shop visibility" className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4 shadow-[0_2px_12px_-10px_#20212433] sm:p-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', previewMode && shop.open ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FCE8E8] text-[#B91F1F]')}>
-              {previewMode && shop.open ? <Eye className="size-5" aria-hidden="true" /> : <Store className="size-5" aria-hidden="true" />}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold">{previewMode ? shop.open ? 'Shop is visible' : 'Shop is closed' : 'Shop visibility isn’t connected'}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-ink">{previewMode ? `${inStockCount} sample products · ordering status is local to this preview` : 'Live availability and product totals are not available in this workspace yet.'}</p>
+        {tab === 'orders' && <>
+          <section className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-muted-ink">Orders</p>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">Your shop, at a glance</h2>
+          </section>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="New orders" value={String(incoming.length)} />
+            <Stat label="Today’s orders" value={String(shopOrders.filter(order => new Date(order.placedAt).toDateString() === new Date().toDateString()).length)} />
+            <Stat label="Sales in loaded orders" value={rupee(revenue)} />
+            <Stat label="In progress" value={String(incoming.length + packing.length + ready.length + outForDelivery.length)} />
+          </dl>
+          {sellerDataError && <p role="alert" className="rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">Seller data could not load. Refresh to try again.</p>}
+          <section aria-labelledby="quick-actions-heading">
+            <h2 id="quick-actions-heading" className="mb-3 text-lg font-bold">Quick actions</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <a href="/seller/catalog" className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-sm font-semibold"><Plus className="size-5 text-brand" aria-hidden="true" />Add product</a>
+              <button type="button" onClick={() => setTab('products')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Package className="size-5 text-brand" aria-hidden="true" />Manage products</button>
+              <button type="button" onClick={() => setTab('earnings')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Banknote className="size-5 text-brand" aria-hidden="true" />View earnings</button>
+              <button type="button" onClick={() => setTab('account')} className="flex min-h-[68px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left text-sm font-semibold"><Store className="size-5 text-brand" aria-hidden="true" />Shop settings</button>
             </div>
-          </div>
-          <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold', previewMode && shop.open ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FCE8E8] text-[#991B1B]')}>{previewMode ? shop.open ? 'LIVE' : 'CLOSED' : 'UNAVAILABLE'}</span>
-        </section>
-
-        <section aria-labelledby="quick-actions-heading">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div><h2 id="quick-actions-heading" className="text-lg font-bold">Quick actions</h2><p className="mt-0.5 text-sm text-muted-ink">Common tasks, right at hand.</p></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <button type="button" onClick={() => previewMode ? openProductForm() : window.location.assign('/seller/catalog')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><Plus className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Add product</span>
-            </button>
-            <button type="button" onClick={() => setTab('products')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Package className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Manage products</span>
-            </button>
-            <button type="button" onClick={() => setTab('earnings')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Banknote className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">View earnings</span>
-            </button>
-            <button type="button" onClick={() => setTab('account')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Store className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Shop settings</span>
-            </button>
-          </div>
-        </section>
+          </section>
+        </>}
 
         {tab === 'orders' && (
           <>
-            <section aria-labelledby="overview-heading">
-              <div className="mb-3 flex items-end justify-between gap-3"><div><h2 id="overview-heading" className="text-lg font-bold">Today&apos;s overview</h2><p className="mt-0.5 text-sm text-muted-ink">A quick read on today&apos;s shop activity.</p></div></div>
-              <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat label="New orders" value={previewMode ? String(incoming.length) : '—'} />
-                <Stat label="Today’s orders" value={previewMode ? String(shopOrders.length) : '—'} />
-                <Stat label="Today’s sales" value={previewMode ? rupee(revenue) : '—'} />
-                <Stat label="Pending orders" value={previewMode ? String(incoming.length + packing.length + ready.length + outForDelivery.length) : '—'} />
-              </dl>
-              {!previewMode && <p className="mt-2 text-xs text-muted-ink">Live order and financial reporting isn&apos;t connected to seller accounts yet.</p>}
-            </section>
-
             <section aria-labelledby="order-management-heading">
-              <div className="mb-3 flex items-end justify-between gap-3"><div><h2 id="order-management-heading" className="text-lg font-bold">Order management</h2><p className="mt-0.5 text-sm text-muted-ink">Keep every order moving to the next step.</p></div>{previewMode && <span className="rounded-full bg-[#FFF7ED] px-2.5 py-1 text-xs font-semibold text-[#9A3412]">Preview</span>}</div>
-              {previewMode ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  {[['New', incoming, ClipboardList], ['Preparing', packing, Package], ['Ready for pickup', ready, Bike], ['Out for delivery', outForDelivery, Bike], ['Completed', completed, Check]].map(([label, group, Icon]) => {
-                    const ordersForStatus = group as Order[]
-                    const StatusIcon = Icon as typeof Package
-                    return <section key={label as string} className="rounded-2xl border border-line bg-white p-3 sm:p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{label as string}</h3><span className="grid size-8 place-items-center rounded-lg bg-[#FCE8E8] text-[#B91F1F]"><StatusIcon className="size-4" aria-hidden="true" /></span></div><p className="mt-2 text-2xl font-bold tabular-nums">{ordersForStatus.length}</p><p className="mt-1 text-xs text-muted-ink">{ordersForStatus.length ? 'Sample orders below' : 'No orders in this stage'}</p></section>
-                  })}
-                </div>
-              ) : (
-                <Empty Icon={ClipboardList} title="Seller orders aren’t connected yet" detail="Orders placed by customers will appear here once seller order access is enabled. No sample orders are shown." />
-              )}
-              {previewMode && <div className="mt-3 flex flex-col gap-3">
-                {incoming.map(order => <article key={order.id} className="rounded-2xl border border-[#F0BABA] bg-white p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold">Order #{order.id}</p><p className="mt-1 text-xs text-muted-ink">{order.customerName} · Cash on delivery · {order.placedAt}</p></div><p className="text-base font-bold">{rupee(order.itemTotal)}</p></div><OrderLines order={order} /><p className="mt-3 rounded-xl bg-[#F7F8FA] px-3 py-2 text-xs leading-5 text-muted-ink">Preview totals · seller payout {rupee(order.sellerPayout)} · delivery contribution {rupee(order.sellerDeliveryDeduction)}</p><div className="mt-3 flex gap-2"><SecondaryButton onClick={() => setPreviewOrderStatus(order.id, 'rejected')} className="h-11 text-sm text-[#B91F1F]">Decline</SecondaryButton><PrimaryButton onClick={() => setPreviewOrderStatus(order.id, 'accepted')} className="h-11 text-sm">Accept order</PrimaryButton></div></article>)}
-                {packing.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="warn">Preparing</StatusPill></div><OrderLines order={order} /><PrimaryButton onClick={() => setPreviewOrderStatus(order.id, 'ready')} className="mt-3 h-11">Mark ready for pickup</PrimaryButton></article>)}
-                {ready.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between gap-2"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="info">{order.status === 'ready' ? 'Ready for pickup' : 'Out for delivery'}</StatusPill></div>{order.status === 'ready' && order.pickupOtp && <p className="mt-2 text-sm text-muted-ink">Pickup code <strong className="tracking-widest text-ink">{order.pickupOtp}</strong></p>}</article>)}
-                {outForDelivery.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between gap-2"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="info">Out for delivery</StatusPill></div><p className="mt-1 text-sm text-muted-ink">Picked up by {order.riderName || 'rider'}</p></article>)}
-                {!incoming.length && !packing.length && !ready.length && !outForDelivery.length && <Empty Icon={ClipboardList} title="No new orders" detail="New orders will appear here when they are placed." />}
-              </div>}
-            </section>
-
-            <section aria-labelledby="recent-activity-heading">
-              <div className="mb-3 flex items-center justify-between gap-3"><h2 id="recent-activity-heading" className="text-lg font-bold">Recent activity</h2>{previewMode && <span className="text-xs font-medium text-muted-ink">Preview</span>}</div>
-              {previewMode && shopOrders.length ? <ul className="divide-y divide-line rounded-2xl border border-line bg-white px-4">{shopOrders.slice(0, 3).map(order => <li key={order.id} className="flex items-center gap-3 py-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FCE8E8] text-[#B91F1F]"><Clock3 className="size-4" aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Order #{order.id} · {order.status}</p><p className="mt-0.5 text-xs text-muted-ink">{order.placedAt} · {rupee(order.itemTotal)}</p></div></li>)}</ul> : <p className="rounded-xl border border-dashed border-line bg-white px-4 py-3 text-sm text-muted-ink">{previewMode ? 'No recent activity yet.' : 'Recent activity will appear here when seller events are connected.'}</p>}
+              <div className="mb-3"><h2 id="order-management-heading" className="text-lg font-bold">Order management</h2><p className="mt-0.5 text-sm text-muted-ink">Orders retrieved from your shop account.</p></div>
+              <div className="mb-3 grid grid-cols-2 gap-2"><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Status<select value={orderStatusFilter} onChange={event => setOrderStatusFilter(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All statuses</option>{['placed', 'accepted', 'ready', 'picked', 'delivered', 'rejected'].map(status => <option key={status} value={status}>{status}</option>)}</select></label><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Date<select value={orderDateFilter} onChange={event => setOrderDateFilter(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All dates</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
+              {actionError && <p role="alert" className="mb-3 rounded-xl bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">{actionError}</p>}
+              {sellerDataLoading ? <p className="rounded-xl border border-line bg-white p-4 text-sm text-muted-ink">Loading your orders…</p> : null}
+              {sellerDataError ? <Empty Icon={ClipboardList} title="Orders could not be loaded" detail="Check your connection and refresh this page." /> : null}
+              {!sellerDataLoading && !sellerDataError && visibleOrders.length === 0 ? <Empty Icon={ClipboardList} title={shopOrders.length ? 'No matching orders' : 'No orders yet'} detail={shopOrders.length ? 'Change the status or date filters to see more orders.' : 'New customer orders for your shop will appear here.'} /> : null}
+              <div className="flex flex-col gap-3">
+                {visibleOrders.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold">Order #{order.id}</p><p className="mt-1 text-xs text-muted-ink">{order.customerName} · {order.payment.toUpperCase()} · {new Date(order.placedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div className="text-right"><StatusPill tone={order.status === 'placed' ? 'warn' : order.status === 'delivered' ? 'open' : 'info'}>{order.status}</StatusPill><p className="mt-2 text-base font-bold">{rupee(order.itemTotal)}</p></div></div>
+                  <OrderLines order={order} />
+                  <p className="mt-3 text-xs leading-5 text-muted-ink">Payment status: COD · {order.status === 'delivered' ? 'completed' : 'collection status is recorded with delivery'}</p>
+                  {order.status === 'placed' && <div className="mt-3 flex gap-2"><SecondaryButton onClick={() => void updateOrderStatus(order.id, 'rejected')} className="h-11 text-sm text-[#B91F1F]">Reject</SecondaryButton><PrimaryButton onClick={() => void updateOrderStatus(order.id, 'accepted')} className="h-11 text-sm">Accept order</PrimaryButton></div>}
+                  {order.status === 'accepted' && <PrimaryButton onClick={() => void updateOrderStatus(order.id, 'ready')} className="mt-3 h-11">Mark ready for pickup</PrimaryButton>}
+                </article>)}
+              </div>
             </section>
           </>
         )}
 
         {tab === 'products' && (
           <section aria-labelledby="products-heading" className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="products-heading" className="text-xl font-bold">Products & inventory</h2><p className="mt-1 text-sm text-muted-ink">Manage the items customers can order from your shop.</p></div>{previewMode ? <button type="button" onClick={openProductForm} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Add sample product</button> : <a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Open catalog</a>}</div>
-            {previewMode ? <>
-              <label className="flex h-12 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><Search className="size-4 text-muted-ink" aria-hidden="true" /><span className="sr-only">Search sample products</span><input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="Search products" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-ink" /></label>
-              <div className="flex flex-wrap gap-2"><span className="rounded-full bg-[#FCE8E8] px-3 py-1.5 text-xs font-semibold text-[#B91F1F]">All products · {myProducts.length}</span><span className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted-ink">In stock · {inStockCount}</span><span className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted-ink">Unavailable · {myProducts.length - inStockCount}</span></div>
-              {showProductForm && <ProductEditor key={editingProduct?.id ?? 'new-product'} initial={editingProduct ?? undefined} onCancel={() => { setShowProductForm(false); setEditingProduct(null) }} onSave={product => { if (editingProduct) updateProduct({ ...editingProduct, ...product }); else addProduct(product); setShowProductForm(false); setEditingProduct(null) }} />}
-              {visibleProducts.length ? <ul className="grid gap-3 sm:grid-cols-2">{visibleProducts.map(product => <li key={product.id} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-white p-3.5"><ProductTile category={product.category} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><p className="mt-1 text-xs text-muted-ink">{categoryById[product.category].short} · {product.unit}</p><p className="mt-1 text-base font-bold">{rupee(product.price)}</p><p className={cn('mt-1 text-xs font-semibold', product.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{product.inStock ? 'Available' : 'Out of stock'}</p></div><div className="flex shrink-0 flex-col items-end gap-2"><Toggle checked={product.inStock} onChange={() => toggleStock(product.id)} label={`${product.name} in stock`} /><button type="button" onClick={() => { setEditingProduct(product); setShowProductForm(true) }} aria-label={`Edit ${product.name}`} className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-brand-deep hover:bg-[#FCE8E8]"><Pencil className="size-3.5" aria-hidden="true" /> Edit</button></div></li>)}</ul> : <Empty Icon={Package} title="No matching products" detail="Try another search or add a product to your catalog." />}
-              <p className="text-xs text-muted-ink">These preview listings reset when you leave. Use the catalog route to manage connected listings.</p>
-              <a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-semibold text-ink">Manage connected catalog</a>
-            </> : <Empty Icon={Package} title="Live catalog isn’t available in this workspace" detail="No product data is shown as live. Seller catalog storage and management need to be connected before listing changes can be saved." />}
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="products-heading" className="text-xl font-bold">Products & inventory</h2><p className="mt-1 text-sm text-muted-ink">Manage real listings and stock for {profile.shopName || 'your shop'}.</p></div><a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Add product</a></div>
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Total products" value={String(myProducts.length)} /><Stat label="In stock" value={String(inStockCount)} /><Stat label="Low stock" value={String(myProducts.filter(product => product.stock > 0 && product.stock <= product.low_stock_threshold).length)} /><Stat label="Unavailable" value={String(myProducts.filter(product => !product.is_available || product.stock === 0).length)} /></dl>
+            <label className="flex h-12 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><Search className="size-4 text-muted-ink" aria-hidden="true" /><span className="sr-only">Search your products</span><input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="Search products" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-ink" /></label>
+            <div className="grid grid-cols-2 gap-2"><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Availability<select value={productAvailability} onChange={event => setProductAvailability(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All products</option><option value="in-stock">In stock</option><option value="low-stock">Low stock</option><option value="unavailable">Unavailable</option></select></label><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Category<select value={productCategory} onChange={event => setProductCategory(event.target.value)} className="h-11 rounded-xl border border-line bg-white px-2 text-sm text-ink"><option value="all">All categories</option>{sellerData?.categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
+            {sellerDataLoading ? <p className="rounded-xl border border-line bg-white p-4 text-sm text-muted-ink">Loading your catalog…</p> : null}
+            {sellerDataError ? <Empty Icon={Package} title="Catalog could not be loaded" detail="Check your connection and refresh this page." /> : null}
+            {!sellerDataLoading && !sellerDataError && visibleProducts.length === 0 ? <Empty Icon={Package} title={myProducts.length ? 'No matching products' : 'Your catalog is empty'} detail={myProducts.length ? 'Try another search.' : 'Add your first product to start building your catalog.'} /> : null}
+            <ul className="grid gap-3 sm:grid-cols-2">{visibleProducts.map(product => {
+              const categoryName = sellerData?.categories.find(category => category.id === product.category_id)?.name ?? 'Uncategorized'
+              const status = !product.is_available || product.stock === 0 ? 'Unavailable' : product.stock <= 5 ? 'Low stock' : 'In stock'
+              return <li key={product.id} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-white p-3.5">
+                {product.images?.[0] ? <img src={product.images[0]} alt={product.name} className="size-16 shrink-0 rounded-xl object-cover" /> : <span className="grid size-16 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-brand"><Package className="size-6" aria-hidden="true" /></span>}
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><p className="mt-1 truncate text-xs text-muted-ink">{categoryName}{product.unit ? ` · ${product.unit}` : ''}</p><p className="mt-1 text-base font-bold">{rupee(Number(product.price))}</p><p className={cn('mt-1 text-xs font-semibold', status === 'In stock' ? 'text-[#15803D]' : status === 'Low stock' ? 'text-[#A16207]' : 'text-[#B91F1F]')}>{status} · {product.stock} units</p></div>
+                <a href="/seller/catalog" className="inline-flex min-h-10 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-brand-deep hover:bg-[#FCE8E8]">Edit</a>
+              </li>
+            })}</ul>
           </section>
         )}
 
         {tab === 'earnings' && (
           <section className="flex flex-col gap-4" aria-labelledby="earnings-heading">
-            <div><h2 id="earnings-heading" className="text-xl font-bold">Earnings</h2><p className="mt-1 text-sm text-muted-ink">Sales and seller payouts are shown separately.</p></div>
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Total sales" value={previewMode ? rupee(revenue) : '—'} /><Stat label="Seller earnings" value="—" /><Stat label="Platform fees" value="—" /><Stat label="Pending settlements" value="—" /></dl>
-            <div role="status" className="rounded-2xl border border-line bg-white p-4"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><Banknote className="size-5" aria-hidden="true" /></span><div><h3 className="text-sm font-bold">Settlement information unavailable</h3><p className="mt-1 text-sm leading-5 text-muted-ink">This account doesn&apos;t have verified seller settlement history yet. Sales are not profit, and no payout is marked complete.</p></div></div></div>
-            {previewMode && <div className="rounded-xl bg-[#FCE8E8] px-4 py-3 text-xs leading-5 text-[#7F1D1D]">Preview sales use example orders only. They do not represent real transactions or earnings.</div>}
-            <button type="button" onClick={() => setShowProfitCalculator(value => !value)} aria-expanded={showProfitCalculator} className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 text-sm font-semibold"><span className="flex items-center gap-2"><Calculator className="size-4 text-brand" aria-hidden="true" /> Open profit calculator</span><span className="text-xs text-muted-ink">{showProfitCalculator ? 'Hide' : 'Show'}</span></button>
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="earnings-heading" className="text-xl font-bold">Earnings</h2><p className="mt-1 text-sm text-muted-ink">Actual order totals, not profit estimates.</p></div><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Period<select value={earningsRange} onChange={event => setEarningsRange(event.target.value as 'today' | '7d' | '30d')} className="h-10 rounded-lg border border-line bg-white px-3 text-sm text-ink"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
+            <dl className="grid grid-cols-2 gap-3"><Stat label="Gross sales" value={rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))} /><Stat label="Seller earnings" value={rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))} /><Stat label="Platform fees" value={rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))} /><Stat label="Settlements" value="Not configured" /></dl>
+            <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="sales-chart-heading"><h3 id="sales-chart-heading" className="text-sm font-bold">Daily gross sales</h3><div className="mt-4 flex h-36 items-end gap-2" role="img" aria-label="Daily gross sales chart for the selected period">{salesByDay.map(day => <div key={day.key} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1 text-center"><span className="truncate text-[10px] font-medium text-muted-ink">{day.total ? rupee(day.total) : '—'}</span><div className="min-h-1 rounded-t-md bg-brand" style={{ height: `${Math.max(4, (day.total / Math.max(1, ...salesByDay.map(item => item.total))) * 80)}%` }} /><span className="text-[10px] text-muted-ink">{day.label}</span></div>)}</div></section>
+            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Order financial breakdown</h3><dl className="mt-3 flex flex-col gap-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-muted-ink">Gross product sales</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fees recorded</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery deductions</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_delivery_deduction), 0))}</dd></div><div className="flex justify-between gap-3 border-t border-line pt-3"><dt className="font-semibold">Net seller earnings recorded</dt><dd className="font-bold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))}</dd></div><div className="text-xs leading-5 text-muted-ink">Discounts, refunds and adjustments are not recorded in the current order schema; they are excluded. Platform fees are order fees, not seller commission.</div></dl></section>
+            <section className="rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4"><h3 className="text-sm font-bold text-[#9A3412]">Settlement history not configured</h3><p className="mt-1 text-sm leading-5 text-[#9A3412]">No payout ledger or bank settlement records are available in this workspace, so settled and pending amounts cannot be verified. Connect and verify seller bank details and enable the settlement ledger before showing payouts.</p></section>
+            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Recent orders</h3>{periodOrders.length ? <ul className="mt-2 divide-y divide-line">{periodOrders.slice(0, 8).map(order => <li key={order.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="min-w-0 truncate">#{order.id} · {order.status}</span><strong>{rupee(Number(order.seller_payout))}</strong></li>)}</ul> : <p className="mt-2 text-sm text-muted-ink">No completed financial activity for this period.</p>}</section>
+            <button type="button" onClick={() => setShowProfitCalculator(value => !value)} aria-expanded={showProfitCalculator} className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 text-sm font-semibold"><span className="flex items-center gap-2"><Calculator className="size-4 text-brand" aria-hidden="true" /> Product profit calculator</span><span className="text-xs text-muted-ink">{showProfitCalculator ? 'Hide' : 'Show'}</span></button>
             {showProfitCalculator && <SmartProfitCalculator />}
           </section>
         )}
 
         {tab === 'account' && <PartnerAccount role="Shopkeeper" onExit={onExit} />}
       </main>
-      <BottomNav wide items={[{ key: 'orders', label: 'Orders', Icon: ClipboardList, badge: previewMode ? incoming.length || undefined : undefined }, { key: 'products', label: 'Products', Icon: Package }, { key: 'earnings', label: 'Earnings', Icon: Banknote }, { key: 'account', label: 'Account', Icon: UserRound }]} active={tab} onSelect={setTab} />
+      <BottomNav wide items={[{ key: 'orders', label: 'Orders', Icon: ClipboardList }, { key: 'products', label: 'Products', Icon: Package }, { key: 'earnings', label: 'Earnings', Icon: Banknote }, { key: 'account', label: 'Account', Icon: UserRound }]} active={tab} onSelect={setTab} />
     </div>
   )
 }

@@ -24,6 +24,14 @@ function admin(user: { app_metadata?: Record<string, unknown> }) {
   return user.app_metadata?.role === 'admin'
 }
 
+function validVariant(item: unknown) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+  const variant = item as Record<string, unknown>
+  if (typeof variant.name !== 'string' || !variant.name.trim() || variant.name.length > 80) return false
+  if (!('price' in variant) && !('stock' in variant)) return true
+  return Number.isFinite(variant.price) && Number(variant.price) > 0 && Number.isInteger(variant.stock) && Number(variant.stock) >= 0
+}
+
 export async function GET(request: Request) {
   const user = await currentUser()
   const isAdmin = Boolean(user && admin(user))
@@ -42,7 +50,8 @@ export async function GET(request: Request) {
   if (view === 'admin') {
     const [{ rows: products }, { rows: applications }] = await Promise.all([
       pool.query(`SELECT id, owner_id, category_id, product_type, name, description, unit,
-        price, stock, images, variants, is_vegetarian, is_available, addons
+        price, stock, images, variants, is_vegetarian, is_available, addons,
+        brand, sku, mrp, buying_cost, additional_cost, low_stock_threshold
         FROM catalog_products ORDER BY created_at DESC`),
       pool.query(`SELECT a.user_id, a.status, a.requested_at,
         p.name, p.phone, p.shop_name FROM seller_applications a
@@ -59,7 +68,8 @@ export async function GET(request: Request) {
   if (view === 'seller') {
     const { rows: products } = await pool.query(
       `SELECT id, owner_id, category_id, product_type, name, description, unit,
-              price, stock, images, variants, is_vegetarian, is_available, addons
+              price, stock, images, variants, is_vegetarian, is_available, addons,
+              brand, sku, mrp, buying_cost, additional_cost, low_stock_threshold
        FROM catalog_products WHERE owner_id = $1 ORDER BY created_at DESC`, [user!.id],
     )
     return NextResponse.json({ categories, products }, { headers: { 'Cache-Control': 'private, no-store' } })
@@ -149,17 +159,23 @@ export async function POST(request: Request) {
   if (action === 'save-product') {
     if (profile?.role !== 'shopkeeper') return NextResponse.json({ error: 'Seller access required.' }, { status: 403 })
     const { id, category_id, product_type, name, description, unit, price, stock, images, variants, is_vegetarian, is_available, addons } = body
+    const brand = typeof body.brand === 'string' ? body.brand.trim().slice(0, 100) : ''
+    const sku = typeof body.sku === 'string' ? body.sku.trim().slice(0, 80) : ''
+    const mrp = body.mrp == null || body.mrp === '' ? null : Number(body.mrp)
+    const buyingCost = body.buying_cost == null || body.buying_cost === '' ? 0 : Number(body.buying_cost)
+    const additionalCost = body.additional_cost == null || body.additional_cost === '' ? 0 : Number(body.additional_cost)
+    const lowStockThreshold = body.low_stock_threshold == null ? 5 : Number(body.low_stock_threshold)
     const businessType = profile.shop_type.toLowerCase()
-    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 || !['retail', 'restaurant'].includes(String(product_type)) || !Number.isFinite(price) || Number(price) <= 0 || !Number.isInteger(stock) || Number(stock) < 0 || !Array.isArray(images) || !Array.isArray(variants) || !Array.isArray(addons)) return NextResponse.json({ error: 'Invalid product.' }, { status: 400 })
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 || !['retail', 'restaurant'].includes(String(product_type)) || !Number.isFinite(price) || Number(price) <= 0 || !Number.isInteger(stock) || Number(stock) < 0 || !Array.isArray(images) || images.length > 8 || images.some(image => typeof image !== 'string' || image.length > 2048) || !Array.isArray(variants) || variants.length > 20 || variants.some(variant => !validVariant(variant)) || !Array.isArray(addons) || (mrp !== null && (!Number.isFinite(mrp) || mrp < Number(price))) || !Number.isFinite(buyingCost) || buyingCost < 0 || !Number.isFinite(additionalCost) || additionalCost < 0 || !Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) return NextResponse.json({ error: 'Invalid product.' }, { status: 400 })
     const { rows: categories } = await pool.query(`SELECT scope, business_types, is_active FROM catalog_categories WHERE id=$1`, [category_id])
     const category = categories[0]
     if (!category || !category.is_active || (category.business_types.length && !category.business_types.includes(businessType)) || category.scope !== (product_type === 'restaurant' ? 'restaurant' : 'general')) return NextResponse.json({ error: 'This category is not available to your business.' }, { status: 409 })
-    const values = [user.id, category_id, product_type, name.trim(), String(description ?? '').slice(0, 2000), String(unit ?? '').slice(0, 60), price, stock, JSON.stringify(images), JSON.stringify(variants), typeof is_vegetarian === 'boolean' ? is_vegetarian : null, Boolean(is_available) && Number(stock) > 0, JSON.stringify(addons)]
+    const values = [user.id, category_id, product_type, name.trim(), String(description ?? '').slice(0, 2000), String(unit ?? '').slice(0, 60), price, stock, JSON.stringify(images), JSON.stringify(variants), typeof is_vegetarian === 'boolean' ? is_vegetarian : null, Boolean(is_available) && Number(stock) > 0, JSON.stringify(addons), brand, sku, mrp, buyingCost, additionalCost, lowStockThreshold]
     if (typeof id === 'string' && id) {
-      const result = await pool.query(`UPDATE catalog_products SET category_id=$2, product_type=$3, name=$4, description=$5, unit=$6, price=$7, stock=$8, images=$9::jsonb, variants=$10::jsonb, is_vegetarian=$11, is_available=$12, addons=$13::jsonb, updated_at=now() WHERE owner_id=$1 AND id=$14`, [...values, id])
+      const result = await pool.query(`UPDATE catalog_products SET category_id=$2, product_type=$3, name=$4, description=$5, unit=$6, price=$7, stock=$8, images=$9::jsonb, variants=$10::jsonb, is_vegetarian=$11, is_available=$12, addons=$13::jsonb, brand=$14, sku=$15, mrp=$16, buying_cost=$17, additional_cost=$18, low_stock_threshold=$19, updated_at=now() WHERE owner_id=$1 AND id=$20`, [...values, id])
       if (!result.rowCount) return NextResponse.json({ error: 'Product not found.' }, { status: 404 })
     } else {
-      await pool.query(`INSERT INTO catalog_products(owner_id,category_id,product_type,name,description,unit,price,stock,images,variants,is_vegetarian,is_available,addons) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13::jsonb)`, values)
+      await pool.query(`INSERT INTO catalog_products(owner_id,category_id,product_type,name,description,unit,price,stock,images,variants,is_vegetarian,is_available,addons,brand,sku,mrp,buying_cost,additional_cost,low_stock_threshold) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19)`, values)
     }
     return NextResponse.json({ ok: true })
   }

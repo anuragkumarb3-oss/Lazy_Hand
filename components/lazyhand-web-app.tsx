@@ -344,6 +344,13 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
         onCreate={sendSignupCode}
         onLogin={() => setStage('login')}
         onBack={() => setStage('location')}
+        onSkip={() => {
+          setProfile({ ...emptyProfile })
+          setPendingProfile(null)
+          setAuthenticatedUserId(null)
+          setAuthenticatedPhone('')
+          enterApp('customer')
+        }}
       />
     )
 

@@ -347,7 +347,7 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
 
 type SignupErrors = Partial<Record<keyof Profile, string>>
 
-export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: Profile; onCreate: (profile: Profile, policyKeys: string[]) => Promise<void>; onLogin: () => void; onBack: () => void }) {
+export function SignupScreen({ initial, onCreate, onLogin, onBack, onSkip }: { initial: Profile; onCreate: (profile: Profile, policyKeys: string[]) => Promise<void>; onLogin: () => void; onBack: () => void; onSkip: () => void }) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<SignupErrors>({})
   const [acceptedPolicies, setAcceptedPolicies] = useState(false)
@@ -392,8 +392,9 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
 
   return (
     <Screen className="px-5 pb-6 pt-[max(env(safe-area-inset-top),20px)]">
-      <header>
+      <header className="flex items-center justify-between">
         <BackButton onClick={onBack} />
+        <button type="button" onClick={onSkip} className="min-h-11 px-2 text-sm font-medium text-muted-ink/60 transition hover:text-muted-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">Skip for now</button>
       </header>
       <h1 className="mt-6 text-3xl font-bold tracking-tight">Create your account</h1>
       <p className="mt-2 text-sm text-muted-ink">Verify your mobile number and add a few details.</p>
@@ -442,7 +443,8 @@ function ChipGroup({ id, label, options, value, onChange, error }: { id: string;
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-2 text-xs font-medium text-muted-ink">
         {label}
-        <span className="ml-1 font-semibold text-brand-deep">· Required</span>
+        <span className="ml-1 font-semibold text-muted-ink" aria-hidden="true">*</span>
+        <span className="sr-only"> required</span>
       </legend>
       <div id={id} role="radiogroup" aria-label={label} aria-required="true" aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} className="flex flex-wrap gap-2">
         {options.map(option => {
