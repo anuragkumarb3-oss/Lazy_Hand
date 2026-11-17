@@ -290,15 +290,14 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
               <div className="mt-3 grid grid-cols-3 gap-2.5">
                 {sectionCategories.slice(0, 9).map(category => {
                   const categoryId = categoryIdForName(category.name)
-                  const matchedProducts = catalog && categoryId ? products.filter(product => product.category === categoryId && product.inStock) : []
-                  const tileProducts = [...matchedProducts]
-                    .filter(product => product.imageUrl)
-                    .sort((first, second) => Number(shopById[second.shopId]?.open) - Number(shopById[first.shopId]?.open))
-                    .slice(0, 4)
+                  const matchedProducts = catalog?.products
+                    .filter(product => product.category_id === category.id && product.product_type === 'retail' && product.is_available && product.stock > 0)
+                    .sort((first, second) => Number(second.shop_open) - Number(first.shop_open)) ?? []
+                  const tileProducts = matchedProducts.filter(product => product.images?.[0]).slice(0, 4)
                   return (
                     <button key={category.id} type="button" aria-pressed={activeCategory === category.id} onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)} className={cn('flex min-w-0 flex-col items-center rounded-[1.35rem] border p-2 text-center transition active:scale-[0.98]', activeCategory === category.id ? 'border-brand bg-[#FFF5E7] shadow-md' : 'border-[#F0EFF3] bg-[#F5F5F8]')}>
                       <span className={cn('relative grid aspect-square w-full gap-1 overflow-hidden rounded-[1rem] bg-white p-1', tileProducts.length === 1 ? 'grid-cols-1 grid-rows-1' : tileProducts.length === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-2 grid-rows-2')}>
-                        {tileProducts.length ? tileProducts.map(product => <span key={product.id} className="min-w-0 overflow-hidden rounded-[0.8rem] bg-white"><img src={product.imageUrl} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 row-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
+                        {tileProducts.length ? tileProducts.map(product => <span key={product.id} className="min-w-0 overflow-hidden rounded-[0.8rem] bg-white"><img src={product.images[0]} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 row-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
                         {matchedProducts.length > 4 && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-semibold text-muted-ink shadow-sm">+{matchedProducts.length - 4} more</span>}
                       </span>
                       <span className="mt-3 line-clamp-2 min-h-9 text-[13px] font-semibold leading-[1.15rem]">{category.name}</span>
