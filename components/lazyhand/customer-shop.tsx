@@ -14,8 +14,8 @@ function ProductRow({ product, showShop }: { product: Product; showShop?: boolea
   const unavailable = !product.inStock || !shop.open
   return (
     <li className="flex items-center gap-3 rounded-2xl border border-[#EFE4D8] bg-gradient-to-r from-white via-white to-[#FFF9F2] p-3 shadow-[0_6px_18px_-16px_#6B4A34]">
-      <span className="grid size-16 shrink-0 place-items-center rounded-[1.1rem] border border-white bg-white shadow-sm">
-        <ProductTile category={product.category} />
+      <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-[1.1rem] border border-white bg-white shadow-sm">
+        {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <ProductTile category={product.category} />}
       </span>
       <div className="min-w-0 flex-1">
         {product.featured && <p className="mb-0.5 text-[9px] font-bold uppercase tracking-[0.13em] text-brand-deep">Neighborhood favorite</p>}
@@ -118,9 +118,47 @@ function categoryIdForName(name: string) {
   })?.id
 }
 
-export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: string; onChangeLocation: () => void; onOpenStore: (id: string) => void }) {
+function MoreProducts({ products }: { products: Product[] }) {
+  const { cart, addItem, shopById } = useLazyHand()
+  const featuredProducts = [...products]
+    .filter(product => product.inStock && shopById[product.shopId])
+    .sort((first, second) => Number(shopById[second.shopId].open) - Number(shopById[first.shopId].open))
+    .slice(0, 8)
+
+  return (
+    <section aria-labelledby="more-products-heading" className="mt-8">
+      <div className="flex items-end justify-between gap-3">
+        <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="more-products-heading" className="mt-1 text-xl font-extrabold tracking-tight">More Products</h2></div>
+        <a href="/categories" className="pb-1 text-xs font-semibold text-brand-deep">See all <ChevronRight className="inline size-3.5" aria-hidden="true" /></a>
+      </div>
+      {featuredProducts.length ? <ul className="mt-3 grid grid-cols-2 gap-3">{featuredProducts.map(product => {
+        const shop = shopById[product.shopId]
+        const canAdd = shop.open && product.inStock
+        const quantity = cart.items[product.id] ?? 0
+        return <li key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
+          <div className="relative aspect-square bg-[#F7F7F8]">
+            {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
+            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C')}>{canAdd ? 'Available' : 'Shop closed'}</span>
+          </div>
+          <div className="flex min-h-32 flex-1 flex-col p-2.5">
+            <p className="line-clamp-2 min-h-9 text-xs font-semibold leading-4">{product.name}</p>
+            <p className="mt-1 truncate text-[10px] text-muted-ink">{shop.name}</p>
+            <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+              <span className="text-sm font-extrabold">{rupee(product.price)}</span>
+              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={`${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
+                {quantity ? `+ ${quantity}` : 'ADD'}
+              </button>
+            </div>
+          </div>
+        </li>
+      })}</ul> : <p className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">Available seller products will appear here.</p>}
+    </section>
+  )
+}
+
+export function CustomerHome({ area, onChangeLocation }: { area: string; onChangeLocation: () => void }) {
   const { shops, products, setCatalogData } = useLazyHand()
-  const { data: catalog, error: catalogError } = useSWR('home-catalog-categories', fetchCatalog)
+  const { data: catalog, error: catalogError } = useSWR('home-catalog-categories', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
   useEffect(() => {
     if (!catalog && !catalogError) return
     if (!catalog) {
@@ -128,7 +166,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
       return
     }
     const shopsById = new Map<string, Shop>()
-    const liveProducts = catalog.products.map(item => {
+    const liveProducts = catalog.products.filter(item => item.product_type === 'retail').map(item => {
       const eta = item.delivery_estimate_min && item.delivery_estimate_max
         ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min`
         : item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable'
@@ -153,6 +191,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
         price: Number(item.price),
         category: categoryIdForName(categoryName) ?? 'snacks',
         inStock: item.is_available && item.stock > 0,
+        imageUrl: item.images?.[0],
       } as Product
     })
     setCatalogData([...shopsById.values()], liveProducts)
@@ -249,12 +288,15 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
               <div className="mt-3 grid grid-cols-3 gap-2.5">
                 {sectionCategories.slice(0, 9).map(category => {
                   const categoryId = categoryIdForName(category.name)
-                  const matchedProducts = categoryId ? products.filter(product => product.category === categoryId) : []
-                  const tileProducts = matchedProducts.slice(0, 4)
+                  const matchedProducts = categoryId ? products.filter(product => product.category === categoryId && product.inStock) : []
+                  const tileProducts = [...matchedProducts]
+                    .filter(product => product.imageUrl)
+                    .sort((first, second) => Number(shopById[second.shopId]?.open) - Number(shopById[first.shopId]?.open))
+                    .slice(0, 4)
                   return (
                     <button key={category.id} type="button" aria-pressed={activeCategory === category.id} onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)} className={cn('flex min-w-0 flex-col items-center rounded-[1.35rem] border p-2 text-center transition active:scale-[0.98]', activeCategory === category.id ? 'border-brand bg-[#FFF5E7] shadow-md' : 'border-[#F0EFF3] bg-[#F5F5F8]')}>
                       <span className="relative grid aspect-square w-full grid-cols-2 gap-1 overflow-hidden rounded-[1rem] bg-white p-1">
-                        {tileProducts.length ? tileProducts.map(product => <span key={product.id} className="grid min-w-0 place-items-center overflow-hidden rounded-[0.8rem] bg-white"><ProductTile category={product.category} size="sm" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-lg font-bold text-brand-deep">{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}
+                        {tileProducts.length ? tileProducts.map((product, index) => <span key={product.id} className={cn('min-w-0 overflow-hidden rounded-[0.8rem] bg-white', tileProducts.length === 1 && 'col-span-2 row-span-2')}><img src={product.imageUrl} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
                         {matchedProducts.length > 4 && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-semibold text-muted-ink shadow-sm">+{matchedProducts.length - 4} more</span>}
                       </span>
                       <span className="mt-3 line-clamp-2 min-h-9 text-[13px] font-semibold leading-[1.15rem]">{category.name}</span>
@@ -267,17 +309,7 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
 
             {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
 
-            <section aria-labelledby="shops-heading" className="mt-8">
-              <div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Your neighborhood</p><h2 id="shops-heading" className="mt-1 text-xl font-extrabold tracking-tight">Shops near you</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">View all</a></div>
-              <ul className="mt-3 flex flex-col gap-2.5">{sortedShops.map(shop => {
-                const count = products.filter(product => product.shopId === shop.id && product.inStock).length
-                return <li key={shop.id}><button type="button" onClick={() => onOpenStore(shop.id)} className="flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left shadow-[0_5px_18px_-14px_#6B4A34] transition active:scale-[0.99]">
-                  <span className={cn('grid size-12 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#FCE8E8] text-brand-deep' : 'bg-[#F1F1F1] text-muted-ink')}><Store className="size-5" aria-hidden="true" /></span>
-                  <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-semibold">{shop.name}</span><StatusPill tone={shop.open ? 'open' : 'closed'}>{shop.open ? 'Open' : 'Closed'}</StatusPill></span><span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-ink">{shop.rating > 0 && <><span className="flex items-center gap-0.5"><Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" /> {shop.rating}</span><span aria-hidden="true">·</span></>}{shop.open ? <span className="flex items-center gap-1 font-medium text-[#16A34A]"><Clock className="size-3" aria-hidden="true" />{shop.eta || 'Delivery time unavailable'}</span> : <span className="font-medium text-[#DC2626]">Closed · Opens {shop.opensAt}</span>}<span aria-hidden="true">·</span>{count} products</span></span>
-                  <ChevronRight className="size-4 shrink-0 text-muted-ink" aria-hidden="true" />
-                </button></li>
-              })}</ul>
-            </section>
+            <MoreProducts products={products} />
             <section aria-label="More ways to shop" className="mt-6 grid grid-cols-2 gap-3"><a href="/restaurants" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><ShoppingBag className="size-4 text-brand-deep" aria-hidden="true" />Restaurants</a><a href="/categories" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><Store className="size-4 text-brand-deep" aria-hidden="true" />Browse stores</a></section>
           </>
         )}
@@ -302,7 +334,7 @@ function CategoryIcon({ category, restaurant }: { category: BrowserCategory; res
 }
 
 export function CategoriesScreen() {
-  const { data: catalog, error: catalogError, isLoading } = useSWR('/api/catalog', fetchCatalog)
+  const { data: catalog, error: catalogError, isLoading } = useSWR('/api/catalog', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
   const categories = catalog?.categories ?? []
   const products = catalog?.products ?? []
   const categoryError = catalogError

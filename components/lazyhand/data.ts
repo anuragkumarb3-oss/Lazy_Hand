@@ -57,6 +57,7 @@ export type Product = {
   category: CategoryId
   inStock: boolean
   featured?: boolean
+  imageUrl?: string
 }
 
 export const seedProducts: Product[] = [
