@@ -142,7 +142,7 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
                     </p>
                     <OrderLines order={order} />
                     <p className="mt-3 rounded-xl bg-[#FFF8F1] px-3 py-2 text-xs leading-5 text-brand-deep">
-                      Customer pays {rupee(order.total)} · seller receives {rupee(order.itemTotal)} · rider payout {rupee(order.riderPayout)} · LazyHand keeps {rupee(order.deliveryFee - order.riderPayout + order.platformFee)}
+                      Customer pays {rupee(order.total)} · seller receives {rupee(order.sellerPayout)} after {rupee(order.sellerDeliveryDeduction)} delivery contribution · rider payout {rupee(order.riderPayout)}
                     </p>
                     <div className="mt-3 flex gap-2">
                       <SecondaryButton onClick={() => setOrderStatus(order.id, 'rejected')} className="h-10 text-xs text-[#B91C1C]">
@@ -272,8 +272,8 @@ function SmartProfitCalculator() {
   const cost = Math.max(0, Number(buyingCost) || 0)
   const productProfit = sale - cost
   const bill = billFor(sale, distanceKm, shopSelfDelivers)
-  const sellerTakeHome = productProfit
-  const deliveryContribution = bill.deliveryFee - bill.riderPayout
+  const sellerTakeHome = productProfit - bill.sellerDeliveryDeduction
+  const deliveryContribution = bill.deliveryFee + bill.sellerDeliveryDeduction - bill.riderPayout
   const lazyHandRevenue = deliveryContribution + bill.platformFee
   const riderTransfer = Math.max(0, lazyHandRevenue)
   const marginPercent = sale > 0 ? (sellerTakeHome / sale) * 100 : 0
@@ -327,6 +327,7 @@ function SmartProfitCalculator() {
         </div>
         <dl className="mt-3 flex flex-col gap-2.5 text-sm">
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Product profit</dt><dd className="font-semibold">{rupee(productProfit)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery contribution</dt><dd className="font-semibold">−{rupee(bill.sellerDeliveryDeduction)}</dd></div>
           <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2.5 font-bold"><dt>Seller take-home</dt><dd>{rupee(sellerTakeHome)} <span className="text-xs font-medium text-muted-ink">({marginPercent.toFixed(1)}%)</span></dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Customer pays</dt><dd className="font-semibold">{rupee(bill.total)}{shopSelfDelivers && <span className="text-xs font-normal text-muted-ink"> · free delivery</span>}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee</dt><dd className="font-semibold">{rupee(bill.platformFee)}</dd></div>
