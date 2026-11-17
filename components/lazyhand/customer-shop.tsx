@@ -11,7 +11,7 @@ import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton } f
 function ProductRow({ product, showShop }: { product: Product; showShop?: boolean }) {
   const { cart, addItem, removeItem, shopById } = useLazyHand()
   const shop = shopById[product.shopId]
-  const unavailable = !product.inStock || !shop.open
+  const unavailable = product.demoOnly || !product.inStock || !shop.open
   return (
     <li className="flex items-center gap-3 rounded-2xl border border-[#EFE4D8] bg-gradient-to-r from-white via-white to-[#FFF9F2] p-3 shadow-[0_6px_18px_-16px_#6B4A34]">
       <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-[1.1rem] border border-white bg-white shadow-sm">
@@ -20,6 +20,7 @@ function ProductRow({ product, showShop }: { product: Product; showShop?: boolea
       <div className="min-w-0 flex-1">
         {product.featured && <p className="mb-0.5 text-[9px] font-bold uppercase tracking-[0.13em] text-brand-deep">Neighborhood favorite</p>}
         <p className="truncate text-sm font-semibold tracking-tight">{product.name}</p>
+        {product.demoOnly && <p className="text-[10px] font-semibold text-brand-deep">Preview sample · not for sale</p>}
         <p className="text-xs text-muted-ink">
           {product.unit}
           {showShop && <> · {shop.name}</>}
@@ -139,20 +140,21 @@ function MoreProducts({ products, loading, area, onChangeLocation }: { products:
       </div>
       {featuredProducts.length ? <ul className="mt-3 grid grid-cols-2 gap-3">{featuredProducts.map(product => {
         const shop = shopById[product.shopId]
-        const canAdd = shop.open && product.inStock
+        const canAdd = !product.demoOnly && shop.open && product.inStock
         const quantity = cart.items[product.id] ?? 0
         return <li key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
           <div className="relative aspect-square bg-[#F7F7F8]">
             {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
-            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{canAdd ? 'Available' : 'Shop closed'}</span>
+            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', product.demoOnly ? 'bg-white/95 text-brand-deep' : canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{product.demoOnly ? 'Preview only' : canAdd ? 'Available' : 'Shop closed'}</span>
           </div>
           <div className="flex min-h-32 flex-1 flex-col p-2.5">
             <p className="line-clamp-2 min-h-9 text-xs font-semibold leading-4">{product.name}</p>
+            {product.demoOnly && <p className="mt-0.5 text-[9px] font-semibold text-brand-deep">Preview sample · not for sale</p>}
             <p className="mt-1 truncate text-[10px] text-muted-ink">{shop.name}</p>
             <div className="mt-auto flex items-center justify-between gap-2 pt-3">
               <span className="text-sm font-extrabold">{rupee(product.price)}</span>
-              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={`${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
-                {quantity ? `+ ${quantity}` : 'ADD'}
+              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={product.demoOnly ? `${product.name}, preview sample, not for sale` : `${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
+                {product.demoOnly ? 'Demo' : quantity ? `+ ${quantity}` : 'ADD'}
               </button>
             </div>
           </div>
@@ -198,6 +200,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
         category: categoryIdForName(categoryName) ?? 'snacks',
         inStock: item.is_available && item.stock > 0,
         imageUrl: item.images?.[0],
+        demoOnly: item.demo_only,
       } as Product
     })
     setCatalogData([...shopsById.values()], liveProducts)
@@ -337,7 +340,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
 }
 
 type BrowserCategory = { id: string; name: string; scope: 'general' | 'restaurant'; parent_id: string | null; image_url: string | null; icon: string | null; display_order: number }
-type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[]; shop_open: boolean; shop_opens_at: string | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null; shop_timezone: string }
+type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[]; shop_open: boolean; shop_opens_at: string | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null; shop_timezone: string; demo_only?: boolean }
 
 const categoryIcons: Record<string, LucideIcon> = {
   'cake-slice': CakeSlice, carrot: Carrot, cookie: Cookie, 'cup-soda': CupSoda, house: House,
@@ -377,7 +380,7 @@ export function CategoriesScreen({ area }: { area: string }) {
         ? `${item.delivery_estimate_min}+ min`
         : 'Estimate unavailable'
     const shop: Shop = { id: item.owner_id, name: item.shop_name, kind: scope === 'restaurant' ? 'Restaurant' : 'Local store', hours: item.shop_open ? 'Open now' : 'Closed', opensAt: item.shop_opens_at ?? 'later', rating: 0, eta: estimate, open: item.shop_open }
-    const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0 }
+    const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0, imageUrl: item.images?.[0], demoOnly: item.demo_only }
     addCatalogItem(product, shop)
   }
 
@@ -413,10 +416,11 @@ export function CategoriesScreen({ area }: { area: string }) {
                 </div>
                 <div className="flex min-h-[112px] flex-1 flex-col p-2">
                   <p className="line-clamp-2 min-h-8 text-xs font-semibold leading-4">{item.name}</p>
+                  {item.demo_only && <p className="mt-0.5 text-[9px] font-semibold text-brand-deep">Preview sample · not for sale</p>}
                   <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-ink">{item.unit || item.shop_name}</p>
                   {item.variants?.length > 0 && <p className="mt-1 line-clamp-1 text-[9px] text-muted-ink">Options: {item.variants.map(option => option.name).filter(Boolean).join(', ')}</p>}
                   {item.addons?.length > 0 && <p className="line-clamp-1 text-[9px] text-muted-ink">Add-ons: {item.addons.map(option => option.name).filter(Boolean).join(', ')}</p>}
-                  <div className="mt-auto flex items-center justify-between gap-1 pt-2"><span className="text-xs font-extrabold">{rupee(Number(item.price))}</span><QtyControl qty={qty} onAdd={() => add(item)} onRemove={() => removeItem(item.id)} disabled={!item.is_available || item.stock <= 0 || !item.shop_open} label={item.name} /></div>
+                  <div className="mt-auto flex items-center justify-between gap-1 pt-2"><span className="text-xs font-extrabold">{rupee(Number(item.price))}</span><QtyControl qty={qty} onAdd={() => add(item)} onRemove={() => removeItem(item.id)} disabled={item.demo_only || !item.is_available || item.stock <= 0 || !item.shop_open} label={item.name} /></div>
                   {!item.shop_open && <p className="mt-1 text-[10px] font-medium text-[#B91C1C]">Closed · opens {item.shop_opens_at ?? 'later'}</p>}
                   {item.shop_open && <p className="mt-1 text-[10px] text-muted-ink">Delivery: {item.delivery_estimate_min && item.delivery_estimate_max ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min` : item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable'}</p>}
                 </div>

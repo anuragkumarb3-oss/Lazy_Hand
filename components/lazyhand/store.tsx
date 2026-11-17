@@ -101,7 +101,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const addItem = useCallback(
     (productId: string) => {
       const product = productById[productId]
-      if (!product || !product.inStock || !shopById[product.shopId]?.open) return
+      if (!product || product.demoOnly || !product.inStock || !shopById[product.shopId]?.open) return
       setCart(current => {
         const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
         if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
@@ -115,7 +115,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   )
 
   const addCatalogItem = useCallback((product: Product, shop: Shop) => {
-    if (!product.inStock || !shop.open) return
+    if (product.demoOnly || !product.inStock || !shop.open) return
     setShops(current => current.some(item => item.id === shop.id) ? current : [...current, shop])
     setProducts(current => current.some(item => item.id === product.id) ? current : [...current, product])
     setCart(current => {

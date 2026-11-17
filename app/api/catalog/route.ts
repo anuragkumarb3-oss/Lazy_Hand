@@ -4,6 +4,30 @@ import { shopAvailability, type ShopHour } from '@/lib/shop-status'
 
 export const dynamic = 'force-dynamic'
 
+const demoProductByCategory: Record<string, { name: string; unit: string; price: number; image?: string }> = {
+  'Chips & Wafers': { name: 'Golden Crunch Potato Chips', unit: '100 g', price: 35, image: '/images/demo-potato-chips.png' },
+  'Bhujia & Mixtures': { name: 'Classic Masala Bhujia', unit: '200 g', price: 55 },
+  'Namkeen Snacks': { name: 'Roasted Masala Peanuts', unit: '150 g', price: 45 },
+  Biscuits: { name: 'Butter Crunch Biscuits', unit: '250 g', price: 40 },
+  'Soft Drinks & Beverages': { name: 'Sparkling Lemon Soda', unit: '300 ml', price: 30 },
+  'Dairy Products': { name: 'Farm Fresh Milk', unit: '500 ml', price: 32, image: '/images/demo-fresh-milk.png' },
+  Groceries: { name: 'Long-Grain Basmati Rice', unit: '1 kg', price: 145, image: '/images/demo-basmati-rice.png' },
+  'Daily Essentials': { name: 'Gentle Hand Wash', unit: '250 ml', price: 75 },
+  'Fruits & Vegetables': { name: 'Fresh Red Apples', unit: '500 g', price: 90 },
+  'Ice Creams': { name: 'Belgian Chocolate Scoop', unit: '100 ml', price: 65 },
+  'Household Products': { name: 'Lemon Dishwash Liquid', unit: '500 ml', price: 85 },
+  Pizza: { name: 'Garden Fresh Margherita Pizza', unit: 'Regular', price: 199, image: '/images/demo-margherita-pizza.png' },
+  'Burgers & Sandwiches': { name: 'Classic Veggie Burger', unit: '1 pc', price: 129 },
+  'Junk Food': { name: 'Crispy Loaded Fries', unit: '1 portion', price: 99 },
+  'Snacks & Starters': { name: 'Paneer Tikka Bites', unit: '6 pcs', price: 159 },
+  'Main Course / Heavy Meals': { name: 'Paneer Butter Masala Meal', unit: '1 portion', price: 229 },
+  'Biryani & Rice': { name: 'Hyderabadi Veg Biryani', unit: '1 portion', price: 189 },
+  'Indian Food': { name: 'Dal Makhani with Rice', unit: '1 portion', price: 169 },
+  'Chinese Food': { name: 'Veg Hakka Noodles', unit: '1 portion', price: 159 },
+  Desserts: { name: 'Gulab Jamun', unit: '2 pcs', price: 69 },
+  'Drinks & Beverages': { name: 'Mango Lassi', unit: '300 ml', price: 79 },
+}
+
 export async function GET(request: Request) {
   const supabase = createClient(
     process.env.SUPABASE_URL!,
@@ -89,7 +113,39 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({ categories: categories ?? [], products: liveProducts }, {
+  const demoProducts = process.env.NODE_ENV !== 'production' && (profiles ?? []).length === 0
+    ? (categories ?? []).flatMap(category => {
+        const sample = demoProductByCategory[category.name]
+        if (!sample) return []
+        const restaurant = category.scope === 'restaurant'
+        return [{
+          id: `demo-${category.id}`,
+          owner_id: 'demo-preview-shop',
+          category_id: category.id,
+          product_type: restaurant ? 'restaurant' : 'retail',
+          name: sample.name,
+          description: 'Illustrative sample listing for the LazyHand preview.',
+          unit: sample.unit,
+          price: sample.price,
+          stock: 25,
+          images: sample.image ? [sample.image] : [],
+          variants: [],
+          is_vegetarian: restaurant ? true : null,
+          is_available: true,
+          addons: [],
+          created_at: new Date(0).toISOString(),
+          demo_only: true,
+          shop_name: 'LazyHand Preview Store',
+          shop_open: true,
+          shop_opens_at: null,
+          delivery_estimate_min: 20,
+          delivery_estimate_max: 30,
+          shop_timezone: 'Asia/Kolkata',
+        }]
+      })
+    : []
+
+  return NextResponse.json({ categories: categories ?? [], products: [...liveProducts, ...demoProducts] }, {
     headers: { 'Cache-Control': 'public, max-age=30, stale-while-revalidate=60' },
   })
 }
