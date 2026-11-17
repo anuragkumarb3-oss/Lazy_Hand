@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
 import { Home, LayoutGrid, RefreshCw, ShoppingBag, UserRound } from 'lucide-react'
@@ -54,13 +54,14 @@ function friendlyAuthError(message: string, action: 'send' | 'verify') {
 
 async function reverseGeocode(lat: number, lon: number) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 2500)
+  const timeout = window.setTimeout(() => controller.abort(), 3500)
   try {
-    const res = await fetch(
+    const response = await fetch(
       `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`,
       { signal: controller.signal },
     )
-    const data = (await res.json()) as { locality?: string; city?: string; principalSubdivision?: string }
+    if (!response.ok) return ''
+    const data = (await response.json()) as { locality?: string; city?: string; principalSubdivision?: string }
     return [data.locality || data.city, data.principalSubdivision].filter(Boolean).join(', ')
   } catch {
     return ''
@@ -71,32 +72,46 @@ async function reverseGeocode(lat: number, lon: number) {
 
 function useLocation() {
   const [location, setLocation] = useState<LocationState>(initialLocation)
+  const requestId = useRef(0)
 
   const request = useCallback(() => {
-    if (!('geolocation' in navigator)) {
-      setLocation({ status: 'unavailable', area: '', message: 'This browser can’t share location. You can skip and add your village during signup.' })
+    const currentRequestId = ++requestId.current
+    if (!window.isSecureContext) {
+      setLocation({ status: 'unavailable', area: '', message: 'Location requires a secure HTTPS connection. Open the deployed app or localhost, then try again.' })
       return
     }
-    setLocation(l => ({ ...l, status: 'loading' }))
+    if (!('geolocation' in navigator)) {
+      setLocation({ status: 'unavailable', area: '', message: 'This browser does not support location. You can skip and add your village during signup.' })
+      return
+    }
+
+    setLocation({ status: 'loading', area: '', message: '' })
     navigator.geolocation.getCurrentPosition(
-      async pos => {
+      pos => {
+        if (currentRequestId !== requestId.current) return
         const { latitude, longitude } = pos.coords
         const fallback = `${latitude.toFixed(3)}°, ${longitude.toFixed(3)}°`
         setLocation({ status: 'granted', area: fallback, message: '' })
-        const name = await reverseGeocode(latitude, longitude)
-        if (name) setLocation({ status: 'granted', area: name, message: '' })
-      },
-      err => {
-        setLocation({
-          status: err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable',
-          area: '',
-          message:
-            err.code === err.PERMISSION_DENIED
-              ? 'Location permission was blocked. Allow it from your browser’s address bar, or skip and type your village during signup.'
-              : 'We couldn’t detect your location. Try again, or skip and type your village during signup.',
+        void reverseGeocode(latitude, longitude).then(area => {
+          if (currentRequestId !== requestId.current || !area) return
+          setLocation(current => current.status === 'granted' ? { ...current, area } : current)
         })
       },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
+      error => {
+        if (currentRequestId !== requestId.current) return
+        const denied = error.code === error.PERMISSION_DENIED
+        const timedOut = error.code === error.TIMEOUT
+        setLocation({
+          status: denied ? 'denied' : 'unavailable',
+          area: '',
+          message: denied
+            ? 'Location permission is blocked for this app URL. Allow it in your browser’s site settings, then tap Try again.'
+            : timedOut
+              ? 'Location is taking too long. Keep the app open, check device Location services, and try again.'
+              : 'Your browser allowed location, but the device could not get a GPS or network fix. Turn on device Location services and try again.',
+        })
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 },
     )
   }, [])
 

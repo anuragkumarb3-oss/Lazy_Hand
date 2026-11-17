@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 
 const { Pool } = pg
-const connectionString = process.env.DATABASE_URL
-if (!connectionString) throw new Error('DATABASE_URL must be configured in the deployment environment')
+const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL
+if (!connectionString) throw new Error('DATABASE_URL or POSTGRES_URL must be configured in the deployment environment')
 
 const hostname = new URL(connectionString).hostname
 const loopback = hostname === 'localhost' || hostname === '::1' || /^127\./.test(hostname)

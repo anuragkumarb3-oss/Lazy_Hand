@@ -6,8 +6,8 @@ const globalForDb = globalThis as typeof globalThis & { lazyHandPool?: Pool }
 
 function getPool() {
   if (globalForDb.lazyHandPool) return globalForDb.lazyHandPool
-  const connectionString = process.env.DATABASE_URL
-  if (!connectionString) throw new Error('DATABASE_URL must be configured on the server')
+  const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL
+  if (!connectionString) throw new Error('DATABASE_URL or POSTGRES_URL must be configured on the server')
 
   const hostname = new URL(connectionString).hostname
   const loopback = hostname === 'localhost' || hostname === '::1' || /^127\./.test(hostname)

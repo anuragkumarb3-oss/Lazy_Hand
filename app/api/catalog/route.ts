@@ -28,6 +28,13 @@ const demoProductByCategory: Record<string, { name: string; unit: string; price:
   'Drinks & Beverages': { name: 'Mango Lassi', unit: '300 ml', price: 79 },
 }
 
+const demoGroceryProducts = [
+  { name: 'Long-Grain Basmati Rice', unit: '1 kg', price: 145, image: '/images/demo-grocery-rice.png' },
+  { name: 'Golden Toor Dal', unit: '1 kg', price: 165, image: '/images/demo-grocery-dal.png' },
+  { name: 'Cold-Pressed Mustard Oil', unit: '1 L', price: 189, image: '/images/demo-grocery-oil.png' },
+  { name: 'Raw Forest Honey', unit: '250 g', price: 129, image: '/images/demo-grocery-honey.png' },
+]
+
 export async function GET(request: Request) {
   const supabase = createClient(
     process.env.SUPABASE_URL!,
@@ -46,7 +53,7 @@ export async function GET(request: Request) {
       .order('name'),
     supabase
       .from('profiles')
-      .select('id, shop_name, village, shop_timezone, shop_open_override, delivery_estimate_min_minutes, delivery_estimate_max_minutes')
+      .select('id, shop_name, village, shop_timezone, shop_is_open_override, delivery_estimate_min, delivery_estimate_max')
       .eq('role', 'shopkeeper'),
   ])
 
@@ -99,7 +106,7 @@ export async function GET(request: Request) {
     const status = shopAvailability(
       hoursByShop.get(product.owner_id) ?? [],
       shop?.shop_timezone ?? 'Asia/Kolkata',
-      shop?.shop_open_override ?? null,
+      shop?.shop_is_open_override ?? null,
     )
 
     return {
@@ -107,19 +114,20 @@ export async function GET(request: Request) {
       shop_name: shop?.shop_name ?? '',
       shop_open: status.isOpen,
       shop_opens_at: status.nextOpening,
-      delivery_estimate_min: shop?.delivery_estimate_min_minutes ?? null,
-      delivery_estimate_max: shop?.delivery_estimate_max_minutes ?? null,
+      delivery_estimate_min: shop?.delivery_estimate_min ?? null,
+      delivery_estimate_max: shop?.delivery_estimate_max ?? null,
       shop_timezone: status.timeZone,
     }
   })
 
   const demoProducts = process.env.NODE_ENV !== 'production' && (profiles ?? []).length === 0
     ? (categories ?? []).flatMap(category => {
-        const sample = demoProductByCategory[category.name]
-        if (!sample) return []
+        const samples = category.name === 'Groceries'
+          ? demoGroceryProducts
+          : demoProductByCategory[category.name] ? [demoProductByCategory[category.name]] : []
         const restaurant = category.scope === 'restaurant'
-        return [{
-          id: `demo-${category.id}`,
+        return samples.map((sample, index) => ({
+          id: `demo-${category.id}-${index}`,
           owner_id: 'demo-preview-shop',
           category_id: category.id,
           product_type: restaurant ? 'restaurant' : 'retail',
@@ -141,7 +149,7 @@ export async function GET(request: Request) {
           delivery_estimate_min: 20,
           delivery_estimate_max: 30,
           shop_timezone: 'Asia/Kolkata',
-        }]
+        }))
       })
     : []
 

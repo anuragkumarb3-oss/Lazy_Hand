@@ -118,6 +118,7 @@ const homeSections: { name: HomeSection; categories: string[]; Icon: typeof Stor
 
 function categoryIdForName(name: string) {
   const normalizedName = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (normalizedName === 'groceries') return 'staples'
   return Object.values(categoryById).find(category => {
     const normalizedCategory = category.name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
     return normalizedName === normalizedCategory || normalizedName.includes(category.short.toLowerCase()) || normalizedCategory.includes(normalizedName)
