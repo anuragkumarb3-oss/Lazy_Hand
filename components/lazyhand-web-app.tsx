@@ -119,7 +119,7 @@ function useLocation() {
 }
 
 function LazyHandShell({ previewMode }: { previewMode: boolean }) {
-  const { profile, setProfile, setOrders, cartCount } = useLazyHand()
+  const { profile, setProfile, setOrders, cartCount, cartLines } = useLazyHand()
   const { location, request } = useLocation()
   const [stage, setStage] = useState<Stage>('welcome')
   const [sessionReady, setSessionReady] = useState(false)
@@ -396,7 +396,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     body = <CartScreen onBack={() => go(null)} onCheckout={() => go({ kind: 'payment' })} onBrowse={() => { setTab('home'); go(null) }} />
   } else if (overlay?.kind === 'payment') {
     showNav = false
-      body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} canPlaceOrder={Boolean(authenticatedUserId)} onSignIn={() => setStage('login')} />
+      body = <PaymentScreen area={area} onBack={() => go({ kind: 'cart' })} onEditAddress={editAddress} onPlaced={order => go({ kind: 'track', orderId: order.id })} canPlaceOrder={Boolean(authenticatedUserId) || (previewMode && cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly))} onSignIn={() => setStage('login')} />
   } else if (overlay?.kind === 'track') {
     showNav = false
     body = <TrackingScreen orderId={overlay.orderId} onBack={() => { setTab('orders'); go(null) }} onViewAs={role => enterApp(role)} />
@@ -423,7 +423,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   return (
     <div className="mx-auto min-h-svh w-full max-w-md bg-cream text-ink">
       {sellerRequestSubmitted && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-3 text-center text-sm text-[#9A3412]">Shopkeeper request received. You can start listing after an administrator approves your account.</p>}
-      {!authenticatedUserId && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-2.5 text-center text-xs font-medium text-[#9A3412]">Guest browsing — sign in to place orders and view saved orders.</p>}
+      {!authenticatedUserId && <p role="status" className="border-b border-[#FED7AA] bg-[#FFF7ED] px-4 py-2.5 text-center text-xs font-medium text-[#9A3412]">{previewMode ? 'Guest preview — test orders stay in this session and are not sent to a shop.' : 'Guest browsing — sign in to place orders and view saved orders.'}</p>}
       {body}
       {showNav && (
         <>
@@ -451,7 +451,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
 
 export default function LazyHandWebApp({ previewMode = false }: { previewMode?: boolean }) {
   return (
-    <LazyHandProvider>
+    <LazyHandProvider allowDemoOrders={previewMode}>
       <LazyHandShell previewMode={previewMode} />
     </LazyHandProvider>
   )

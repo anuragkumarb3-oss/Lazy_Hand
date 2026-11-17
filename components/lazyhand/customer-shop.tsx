@@ -9,9 +9,9 @@ import { useLazyHand } from './store'
 import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton } from './ui'
 
 function ProductRow({ product, showShop }: { product: Product; showShop?: boolean }) {
-  const { cart, addItem, removeItem, shopById } = useLazyHand()
+  const { cart, addItem, removeItem, shopById, allowDemoOrders } = useLazyHand()
   const shop = shopById[product.shopId]
-  const unavailable = product.demoOnly || !product.inStock || !shop.open
+  const unavailable = (product.demoOnly && !allowDemoOrders) || !product.inStock || !shop.open
   return (
     <li className="flex items-center gap-3 rounded-2xl border border-[#EFE4D8] bg-gradient-to-r from-white via-white to-[#FFF9F2] p-3 shadow-[0_6px_18px_-16px_#6B4A34]">
       <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-[1.1rem] border border-white bg-white shadow-sm">
@@ -20,7 +20,7 @@ function ProductRow({ product, showShop }: { product: Product; showShop?: boolea
       <div className="min-w-0 flex-1">
         {product.featured && <p className="mb-0.5 text-[9px] font-bold uppercase tracking-[0.13em] text-brand-deep">Neighborhood favorite</p>}
         <p className="truncate text-sm font-semibold tracking-tight">{product.name}</p>
-        {product.demoOnly && <p className="text-[10px] font-semibold text-brand-deep">Preview sample · not for sale</p>}
+        {product.demoOnly && <p className="text-[10px] font-semibold text-brand-deep">Preview sample · test checkout only</p>}
         <p className="text-xs text-muted-ink">
           {product.unit}
           {showShop && <> · {shop.name}</>}
@@ -126,7 +126,7 @@ function categoryIdForName(name: string) {
 }
 
 function MoreProducts({ products, loading, area, onChangeLocation }: { products: Product[]; loading: boolean; area: string; onChangeLocation: () => void }) {
-  const { cart, addItem, shopById } = useLazyHand()
+  const { cart, addItem, shopById, allowDemoOrders } = useLazyHand()
   const featuredProducts = [...products]
     .filter(product => product.inStock && shopById[product.shopId])
     .sort((first, second) => Number(shopById[second.shopId].open) - Number(shopById[first.shopId].open))
@@ -141,21 +141,21 @@ function MoreProducts({ products, loading, area, onChangeLocation }: { products:
       </div>
       {featuredProducts.length ? <ul className="mt-3 grid grid-cols-2 gap-3">{featuredProducts.map(product => {
         const shop = shopById[product.shopId]
-        const canAdd = !product.demoOnly && shop.open && product.inStock
+        const canAdd = (!product.demoOnly || allowDemoOrders) && shop.open && product.inStock
         const quantity = cart.items[product.id] ?? 0
         return <li key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
           <div className="relative aspect-square bg-[#F7F7F8]">
             {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
-            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', product.demoOnly ? 'bg-white/95 text-brand-deep' : canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{product.demoOnly ? 'Preview only' : canAdd ? 'Available' : 'Shop closed'}</span>
+            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', product.demoOnly ? 'bg-white/95 text-brand-deep' : canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{product.demoOnly ? 'Test item' : canAdd ? 'Available' : 'Shop closed'}</span>
           </div>
           <div className="flex min-h-32 flex-1 flex-col p-2.5">
             <p className="line-clamp-2 min-h-9 text-xs font-semibold leading-4">{product.name}</p>
-            {product.demoOnly && <p className="mt-0.5 text-[9px] font-semibold text-brand-deep">Preview sample · not for sale</p>}
+            {product.demoOnly && <p className="mt-0.5 text-[9px] font-semibold text-brand-deep">Preview sample · test checkout only</p>}
             <p className="mt-1 truncate text-[10px] text-muted-ink">{shop.name}</p>
             <div className="mt-auto flex items-center justify-between gap-2 pt-3">
               <span className="text-sm font-extrabold">{rupee(product.price)}</span>
-              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={product.demoOnly ? `${product.name}, preview sample, not for sale` : `${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
-                {product.demoOnly ? 'Demo' : quantity ? `+ ${quantity}` : 'ADD'}
+              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={product.demoOnly ? `${quantity ? 'Add another ' : 'Add '}${product.name} for preview test checkout` : `${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
+                {product.demoOnly && !quantity ? 'TEST' : quantity ? `+ ${quantity}` : 'ADD'}
               </button>
             </div>
           </div>

@@ -205,7 +205,10 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null)
   const [isPlacing, setIsPlacing] = useState(false)
   const [isSavingOrder, setIsSavingOrder] = useState(false)
-  const address = [profile.village || area, profile.landmark].filter(Boolean).join(', ')
+  const [isTestOrder, setIsTestOrder] = useState(false)
+  const isDemoOrder = cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly)
+  const deliveryAddress = profile.village || (isDemoOrder && area === 'Set your location' ? 'Preview sample address' : area)
+  const address = [deliveryAddress, profile.landmark].filter(Boolean).join(', ')
   const addressMissing = !address || address === 'Set your location'
   const shop = cart.shopId ? shopById[cart.shopId] : null
 
@@ -219,6 +222,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
       return
     }
     setError('')
+    setIsTestOrder(isDemoOrder)
     setIsSavingOrder(true)
     try {
       const order = await placeOrder('cod', address)
@@ -238,9 +242,9 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
       <div className="w-full max-w-56" aria-hidden="true">
         <Lottie src={orderSuccessAnimation} loop={false} autoplay className="w-full" subscriptions={{ complete: () => onPlaced(placedOrder) }} />
       </div>
-      <p className="mt-2 text-xs font-bold uppercase tracking-[0.16em] text-[#15803D]">Order confirmed</p>
-      <h1 className="mt-2 text-2xl font-bold tracking-tight">Your order is placed</h1>
-      <p className="mt-2 max-w-xs text-sm leading-6 text-muted-ink">We&apos;re confirming with the shop and finding a nearby rider.</p>
+      <p className="mt-2 text-xs font-bold uppercase tracking-[0.16em] text-[#15803D]">{isTestOrder ? 'Test order complete' : 'Order confirmed'}</p>
+      <h1 className="mt-2 text-2xl font-bold tracking-tight">{isTestOrder ? 'Your test order is placed' : 'Your order is placed'}</h1>
+      <p className="mt-2 max-w-xs text-sm leading-6 text-muted-ink">{isTestOrder ? 'This order is only in this preview. No shop or rider was notified.' : 'We&apos;re confirming with the shop and finding a nearby rider.'}</p>
     </main>
   )
 
@@ -282,7 +286,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
             <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
             <div>
               <p className="text-sm font-semibold">Cash on delivery</p>
-              <p className="text-xs text-muted-ink">Pay the rider in cash. Paytm and other digital payment options aren&apos;t connected in this preview.</p>
+              <p className="text-xs text-muted-ink">{isDemoOrder ? 'Preview only: this test checkout does not charge you or notify a shop.' : 'Pay the rider in cash. Paytm and other digital payment options aren&apos;t connected in this preview.'}</p>
             </div>
             <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" />
           </div>
@@ -311,7 +315,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
           {canPlaceOrder ? (
-            <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `Place order · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm, false, { multiStore }).total)}`}</PrimaryButton>
+            <PrimaryButton onClick={() => void place()} disabled={isSavingOrder}>{isSavingOrder ? 'Saving order…' : `${isDemoOrder ? 'Place test order' : 'Place order'} · ${rupee(billFor(cartTotal, cart.deliveryDistanceKm, false, { multiStore }).total)}`}</PrimaryButton>
           ) : (
             <div className="flex flex-col gap-2">
               <p className="text-center text-xs leading-5 text-muted-ink">Guest preview only. Sign in to save and place this order.</p>

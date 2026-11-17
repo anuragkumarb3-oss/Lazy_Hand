@@ -44,6 +44,7 @@ type LazyHandState = {
   verifyOrderOtp: (orderId: string, phase: 'pickup' | 'delivery', code: string) => boolean
   confirmOrderPayment: (orderId: string) => void
   remitOrderToSeller: (orderId: string) => void
+  allowDemoOrders: boolean
   toggleShopOpen: (shopId: string) => void
   toggleStock: (productId: string) => void
   addProduct: (product: Omit<Product, 'id' | 'shopId'> & { shopId?: string }) => void
@@ -74,7 +75,7 @@ function createOtp() {
   return String(values[0] % 10000).padStart(4, '0')
 }
 
-export function LazyHandProvider({ children }: { children: ReactNode }) {
+export function LazyHandProvider({ children, allowDemoOrders = false }: { children: ReactNode; allowDemoOrders?: boolean }) {
   const [shops, setShops] = useState(seedShops)
   const [products, setProducts] = useState(seedProducts)
   const [cart, setCart] = useState<Cart>({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
@@ -101,7 +102,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
   const addItem = useCallback(
     (productId: string) => {
       const product = productById[productId]
-      if (!product || product.demoOnly || !product.inStock || !shopById[product.shopId]?.open) return
+      if (!product || (product.demoOnly && !allowDemoOrders) || !product.inStock || !shopById[product.shopId]?.open) return
       setCart(current => {
         const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
         if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
@@ -111,11 +112,11 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
       })
     },
-    [productById, shopById],
+    [allowDemoOrders, productById, shopById],
   )
 
   const addCatalogItem = useCallback((product: Product, shop: Shop) => {
-    if (product.demoOnly || !product.inStock || !shop.open) return
+    if ((product.demoOnly && !allowDemoOrders) || !product.inStock || !shop.open) return
     setShops(current => current.some(item => item.id === shop.id) ? current : [...current, shop])
     setProducts(current => current.some(item => item.id === product.id) ? current : [...current, product])
     setCart(current => {
@@ -126,7 +127,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
       }
       return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [product.id]: Math.min((current.items[product.id] ?? 0) + 1, 20) } }
     })
-  }, [productById])
+  }, [allowDemoOrders, productById])
 
   const removeItem = useCallback((productId: string) => {
     setCart(current => {
@@ -161,11 +162,16 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
         return groups
       }, new Map<string, typeof cartLines>()).entries())
       const multiStore = groupedLines.length > 1
-      const { data: { user }, error: authError } = await createClient().auth.getUser()
-      if (authError) throw new Error('We could not verify your session. Please sign in again.')
+      const demoCheckout = allowDemoOrders && cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly)
+      let userId: string | null = null
+      if (!demoCheckout) {
+        const { data: { user }, error: authError } = await createClient().auth.getUser()
+        if (authError) throw new Error('We could not verify your session. Please sign in again.')
+        userId = user?.id ?? null
+      }
       let orders: Order[]
 
-      if (user) {
+      if (userId) {
         const requestBody = {
           stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
           deliveryDistanceKm: cart.deliveryDistanceKm,
@@ -216,7 +222,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
       setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
       return orders[0] ?? null
     },
-    [cart.shopId, cart.deliveryDistanceKm, cartLines, profile.name],
+    [allowDemoOrders, cart.shopId, cart.deliveryDistanceKm, cartLines, profile.name],
   )
 
   const reorder = useCallback(
@@ -312,6 +318,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     verifyOrderOtp,
     confirmOrderPayment,
     remitOrderToSeller,
+    allowDemoOrders,
     toggleShopOpen,
     toggleStock,
     addProduct,
