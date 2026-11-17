@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { ArrowDown, ArrowUp, Check, ImagePlus, LoaderCircle, Plus, Store, Utensils, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 
 type Category = {
   id: string
@@ -250,14 +251,61 @@ export function GeneralCategoryBrowse() {
   const { data: items = [], error: itemError } = useSWR('catalog-products', itemFetcher)
   const general = categories.filter(category => category.scope === 'general' && category.is_active && category.is_visible)
   const [active, setActive] = useState('')
-  const selected = active || general[0]?.id
+  const selected = general.some(category => category.id === active) ? active : general[0]?.id
   const visible = items.filter(item => item.product_type === 'retail' && item.is_available && item.category_id === selected)
   const categoryName = general.find(category => category.id === selected)?.name
-  return <main className="mx-auto min-h-svh max-w-5xl bg-cream px-4 py-8 text-ink sm:px-8"><header><a href="/" className="text-sm font-semibold text-brand-deep">← LazyHand</a><p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-brand-deep">Neighborhood stores</p><h1 className="mt-2 text-3xl font-bold">Browse categories</h1><p className="mt-2 text-sm text-muted-ink">Current categories and available products are loaded from the catalog.</p></header>
-    {categoryError || itemError ? <div className="mt-6"><Notice error>Store categories are temporarily unavailable. Please try again.</Notice></div> : null}
-    <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{general.map(category => <button key={category.id} onClick={() => setActive(category.id)} aria-pressed={selected === category.id} className={`flex min-h-20 items-center gap-3 rounded-3xl border p-3.5 text-left text-sm font-semibold shadow-[0_5px_18px_-14px_#6B4A34] transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${selected === category.id ? 'border-brand bg-peach text-brand-deep' : 'border-line/90 bg-white'}`}>{category.image_url ? <img src={category.image_url} alt="" className="size-10 rounded-lg object-cover" /> : <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-cream text-xs font-bold">{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}{category.name}</button>)}</div>
-    <section className="mt-6"><h2 className="text-xl font-bold">{categoryName ?? 'Store products'}</h2>{visible.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{visible.map(item => <article key={item.id} className="flex gap-3 rounded-2xl border border-line bg-white p-3">{item.images[0] ? <img src={item.images[0]} alt={item.name} className="size-20 rounded-xl object-cover" /> : <div className="grid size-20 shrink-0 place-items-center rounded-xl bg-peach text-brand-deep"><Store /></div>}<div className="min-w-0"><h3 className="truncate font-semibold">{item.name}</h3><p className="mt-1 line-clamp-2 text-xs text-muted-ink">{item.description || item.unit}</p><p className="mt-2 font-bold">₹{Number(item.price).toFixed(2)}</p></div></article>)}</div> : <p className="mt-3 rounded-2xl border border-dashed border-line bg-white p-7 text-center text-sm text-muted-ink">No products are listed in this category yet.</p>}</section>
-  </main>
+
+  return (
+    <main className="mx-auto min-h-svh max-w-6xl bg-cream px-3 pb-10 pt-[max(env(safe-area-inset-top),16px)] text-ink sm:px-6 sm:pt-8">
+      <header className="mb-5 sm:mb-7">
+        <a href="/" className="text-sm font-semibold text-brand-deep">← LazyHand</a>
+        <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-deep sm:mt-5 sm:text-xs">Neighborhood stores</p>
+        <h1 className="mt-1 text-2xl font-bold sm:mt-2 sm:text-3xl">Browse categories</h1>
+      </header>
+      {(categoryError || itemError) && <div className="mb-4"><Notice error>Store categories are temporarily unavailable. Please try again.</Notice></div>}
+      {general.length ? (
+        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start border-t border-line sm:grid-cols-[12rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)]">
+          <nav aria-label="Product categories" className="sticky top-0 max-h-[calc(100svh-1rem)] overflow-y-auto border-r border-line bg-cream py-2 [scrollbar-width:thin]">
+            <ul className="flex flex-col gap-1 sm:gap-2">
+              {general.map(category => {
+                const isSelected = selected === category.id
+                return (
+                  <li key={category.id}>
+                    <button type="button" onClick={() => setActive(category.id)} aria-pressed={isSelected} className={cn('relative flex min-h-24 w-full flex-col items-center justify-center gap-2 px-1.5 py-3 text-center text-[11px] leading-tight transition sm:min-h-20 sm:flex-row sm:justify-start sm:gap-3 sm:px-4 sm:text-sm', isSelected ? 'bg-white font-semibold text-brand-deep after:absolute after:inset-y-0 after:right-0 after:w-1 after:rounded-l-full after:bg-brand' : 'text-muted-ink hover:bg-white/70')}>
+                      {category.image_url ? <img src={category.image_url} alt="" className="size-11 shrink-0 rounded-full bg-white object-cover sm:size-12" /> : <span className={cn('grid size-11 shrink-0 place-items-center rounded-full text-xs font-bold sm:size-12', isSelected ? 'bg-peach text-brand-deep' : 'bg-white text-muted-ink')}>{category.icon?.slice(0, 2).toUpperCase() || 'LH'}</span>}
+                      <span className="line-clamp-2 w-full sm:w-auto">{category.name}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </nav>
+          <section aria-labelledby="category-products-heading" className="min-w-0 px-2.5 py-4 sm:px-5 sm:py-5 lg:px-7">
+            <div className="mb-3 flex items-baseline justify-between gap-2 sm:mb-5">
+              <h2 id="category-products-heading" className="text-base font-bold leading-tight sm:text-2xl">{categoryName}</h2>
+              <span className="shrink-0 text-[10px] text-muted-ink sm:text-xs">{visible.length} items</span>
+            </div>
+            {visible.length ? (
+              <ul className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-3">
+                {visible.map(item => (
+                  <li key={item.id}>
+                    <article className="h-full overflow-hidden rounded-xl border border-line bg-white shadow-sm sm:rounded-2xl">
+                      {item.images[0] ? <img src={item.images[0]} alt={item.name} loading="lazy" className="aspect-square w-full bg-white object-contain p-1.5 sm:p-3" /> : <div className="grid aspect-square place-items-center bg-peach text-brand-deep"><Store className="size-8" aria-hidden="true" /></div>}
+                      <div className="flex min-h-24 flex-col p-2.5 sm:min-h-28 sm:p-3.5">
+                        <h3 className="line-clamp-2 text-xs font-semibold leading-4 sm:text-sm sm:leading-5">{item.name}</h3>
+                        <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-ink sm:text-xs">{item.description || item.unit}</p>
+                        <p className="mt-auto pt-2 text-sm font-bold sm:text-base">₹{Number(item.price).toFixed(2)}{item.unit ? <span className="ml-1 text-[10px] font-normal text-muted-ink sm:text-xs">/ {item.unit}</span> : null}</p>
+                      </div>
+                    </article>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="rounded-xl border border-dashed border-line bg-white p-4 text-center text-xs text-muted-ink sm:p-7 sm:text-sm">No products are listed in this category yet.</p>}
+          </section>
+        </div>
+      ) : <p className="rounded-2xl border border-dashed border-line bg-white p-6 text-center text-sm text-muted-ink">Categories will appear here when they are added to the catalog.</p>}
+    </main>
+  )
 }
 
 export function RestaurantBrowse() {
