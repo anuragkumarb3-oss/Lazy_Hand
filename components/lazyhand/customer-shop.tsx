@@ -200,6 +200,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
         price: Number(item.price),
         category: categoryIdForName(categoryName) ?? 'snacks',
         inStock: item.is_available && item.stock > 0,
+        stock: item.stock,
         imageUrl: item.images?.[0],
         demoOnly: item.demo_only,
       } as Product
@@ -381,7 +382,7 @@ export function CategoriesScreen({ area }: { area: string }) {
         ? `${item.delivery_estimate_min}+ min`
         : 'Estimate unavailable'
     const shop: Shop = { id: item.owner_id, name: item.shop_name, kind: scope === 'restaurant' ? 'Restaurant' : 'Local store', hours: item.shop_open ? 'Open now' : 'Closed', opensAt: item.shop_opens_at ?? 'later', rating: 0, eta: estimate, open: item.shop_open }
-    const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0, imageUrl: item.images?.[0], demoOnly: item.demo_only }
+    const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0, stock: item.stock, imageUrl: item.images?.[0], demoOnly: item.demo_only }
     addCatalogItem(product, shop)
   }
 

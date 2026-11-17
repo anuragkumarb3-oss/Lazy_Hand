@@ -56,6 +56,7 @@ export type Product = {
   price: number
   category: CategoryId
   inStock: boolean
+  stock?: number
   featured?: boolean
   imageUrl?: string
   demoOnly?: boolean
@@ -128,10 +129,11 @@ export const FREE_DELIVERY_THRESHOLD = 199
 export const CUSTOMER_DELIVERY_FEE = 40
 export const SELLER_DELIVERY_FEE_BELOW_THRESHOLD = 0
 export const SELLER_DELIVERY_FEE_AT_THRESHOLD = 0
-export const MULTI_STORE_SURCHARGE = 39
+export const MULTI_STORE_SURCHARGE = 0
 export const PLATFORM_FEE_THRESHOLD = 100
-export const DEFAULT_PLATFORM_FEE = 15
-export const MAX_PLATFORM_FEE = 20
+export const DEFAULT_PLATFORM_FEE = 0
+export const MAX_PLATFORM_FEE = 0
+export const DELIVERY_DISCOUNT_PERCENT = 50
 
 export const DELIVERY_SLABS = [
   { label: '0–2 km', maxDistanceKm: 2, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 20 },
@@ -149,36 +151,38 @@ export function deliverySlabFor(distanceKm: number) {
   return DELIVERY_SLABS.find(slab => distanceKm <= slab.maxDistanceKm) ?? DELIVERY_SLABS[DELIVERY_SLABS.length - 1]
 }
 
-export function platformFeeFor(itemTotal: number, configuredFee = DEFAULT_PLATFORM_FEE) {
-  if (itemTotal <= PLATFORM_FEE_THRESHOLD) return 0
-  return Math.max(15, Math.min(MAX_PLATFORM_FEE, Math.round(configuredFee)))
+export function platformFeeFor(_itemTotal: number, _configuredFee = DEFAULT_PLATFORM_FEE) {
+  return 0
+}
+
+function toPaise(amount: number) {
+  return Math.round((Number.isFinite(amount) ? amount : 0) * 100)
 }
 
 export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANCE_KM, shopSelfDelivers = false, options: { multiStore?: boolean; platformFee?: number } = {}) {
   const slab = deliverySlabFor(distanceKm)
-  const discountedDelivery = itemTotal >= FREE_DELIVERY_THRESHOLD
-  const deliveryFeeBeforeDiscount = itemTotal <= 0 || shopSelfDelivers || options.multiStore ? 0 : CUSTOMER_DELIVERY_FEE
-  const deliveryFee = discountedDelivery && deliveryFeeBeforeDiscount > 0 ? deliveryFeeBeforeDiscount / 2 : deliveryFeeBeforeDiscount
+  const itemTotalPaise = toPaise(itemTotal)
+  const deliveryFeeBeforeDiscountPaise = itemTotalPaise <= 0 || shopSelfDelivers ? 0 : toPaise(slab.customerFee)
+  const qualifiesForDeliveryDiscount = itemTotalPaise >= toPaise(FREE_DELIVERY_THRESHOLD)
+  const deliveryDiscountPaise = qualifiesForDeliveryDiscount ? Math.round(deliveryFeeBeforeDiscountPaise * DELIVERY_DISCOUNT_PERCENT / 100) : 0
+  const deliveryFeePaise = deliveryFeeBeforeDiscountPaise - deliveryDiscountPaise
+  const platformFeePaise = 0
+  const multiStoreSurchargePaise = 0
   const sellerDeliveryDeduction = 0
-  const deliveryDiscount = deliveryFeeBeforeDiscount - deliveryFee
-  const platformFeeBeforeDiscount = options.multiStore ? 0 : platformFeeFor(itemTotal, options.platformFee)
-  const platformFee = platformFeeBeforeDiscount
-  const platformDiscount = 0
-  const multiStoreSurcharge = options.multiStore && itemTotal > 0 ? MULTI_STORE_SURCHARGE : 0
   return {
-    itemTotal,
-    deliveryFeeBeforeDiscount,
-    deliveryDiscount,
-    deliveryFee,
-    platformFeeBeforeDiscount,
-    platformDiscount,
-    platformFee,
-    multiStoreSurcharge,
+    itemTotal: itemTotalPaise / 100,
+    deliveryFeeBeforeDiscount: deliveryFeeBeforeDiscountPaise / 100,
+    deliveryDiscount: deliveryDiscountPaise / 100,
+    deliveryFee: deliveryFeePaise / 100,
+    platformFeeBeforeDiscount: 0,
+    platformDiscount: 0,
+    platformFee: platformFeePaise / 100,
+    multiStoreSurcharge: multiStoreSurchargePaise / 100,
     deliveryDistanceKm: distanceKm,
-    riderPayout: itemTotal <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
+    riderPayout: itemTotalPaise <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
     sellerDeliveryDeduction,
-    sellerPayout: itemTotal,
-    total: itemTotal + deliveryFee + platformFee + multiStoreSurcharge,
+    sellerPayout: itemTotalPaise / 100,
+    total: (itemTotalPaise + deliveryFeePaise + platformFeePaise + multiStoreSurchargePaise) / 100,
   }
 }
 

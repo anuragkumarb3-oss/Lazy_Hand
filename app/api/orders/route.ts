@@ -69,6 +69,10 @@ function isSameOriginRequest(request: Request) {
   }
 }
 
+async function getVerifiedDeliveryDistanceKm(_stores: unknown, _address: string): Promise<number | null> {
+  return null
+}
+
 export async function GET() {
   const user = await getAuthenticatedUser()
   if (!user) return NextResponse.json({ error: 'Sign in to view your orders.' }, { status: 401 })
@@ -91,15 +95,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'A valid checkout request key is required.' }, { status: 400 })
   }
 
-  let body: { stores?: unknown; deliveryDistanceKm?: unknown; address?: unknown }
+  let body: { stores?: unknown; address?: unknown }
   try { body = await request.json() } catch { return NextResponse.json({ error: 'The order details are invalid.' }, { status: 400 }) }
 
   const address = typeof body.address === 'string' ? body.address.trim() : ''
-  const deliveryDistanceKm = Number(body.deliveryDistanceKm)
-  const acceptedDistances = DELIVERY_SLABS.map(slab => slab.maxDistanceKm)
   if (address.length < 3 || address.length > 500) return NextResponse.json({ error: 'Add a valid delivery address.' }, { status: 400 })
-  if (!acceptedDistances.some(distance => distance === deliveryDistanceKm)) return NextResponse.json({ error: 'Choose a valid delivery distance.' }, { status: 400 })
   if (!Array.isArray(body.stores) || !body.stores.length || body.stores.length > 10) return NextResponse.json({ error: 'Add items from at least one available store.' }, { status: 400 })
+
+  const deliveryDistanceKm = await getVerifiedDeliveryDistanceKm(body.stores, address)
+  if (deliveryDistanceKm === null) {
+    return NextResponse.json(
+      { error: 'Delivery route distance cannot be confirmed yet. Checkout is temporarily unavailable.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    )
+  }
+  if (!Number.isFinite(deliveryDistanceKm) || deliveryDistanceKm < 0 || !DELIVERY_SLABS.some(slab => deliveryDistanceKm <= slab.maxDistanceKm)) {
+    return NextResponse.json({ error: 'The delivery route is outside the supported area.' }, { status: 400 })
+  }
 
   const normalizedStores: { shopId: string; quantities: Map<string, number> }[] = []
   const storeIds = new Set<string>()
@@ -180,14 +192,14 @@ export async function POST(request: Request) {
     }
 
     const multiStore = normalized.length > 1
-    const checkoutTotal = normalized.reduce((sum, group) => sum + group.itemTotal, 0) + (multiStore ? 39 : 0)
+    const checkoutTotal = normalized.reduce((sum, group) => sum + billFor(group.itemTotal, deliveryDistanceKm, false, { multiStore }).total, 0)
     if (checkoutTotal > 499) {
       await client.query('ROLLBACK')
       return NextResponse.json({ error: 'Cash-on-delivery orders are limited to ₹499. Reduce your cart or choose another payment method when available.' }, { status: 400 })
     }
 
     const inserted: OrderRow[] = []
-    for (const [index, group] of normalized.entries()) {
+    for (const group of normalized) {
       for (const line of group.lines) {
         const result = await client.query(
           `UPDATE catalog_products SET stock = stock - $1, updated_at = now()
@@ -200,7 +212,6 @@ export async function POST(request: Request) {
         }
       }
       const bill = billFor(group.itemTotal, deliveryDistanceKm, false, { multiStore })
-      const surcharge = multiStore && index === 0 ? 39 : 0
       const id = `LH${crypto.randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`
       const { rows } = await client.query<OrderRow>(
         `INSERT INTO orders (
@@ -211,7 +222,7 @@ export async function POST(request: Request) {
         RETURNING ${orderColumns}`,
         [id, checkoutId, user.id, group.shopId, JSON.stringify(group.lines), bill.itemTotal,
           bill.deliveryFee, bill.platformFee, bill.deliveryDistanceKm, bill.riderPayout,
-          bill.sellerDeliveryDeduction, bill.sellerPayout, bill.total + surcharge,
+          bill.sellerDeliveryDeduction, bill.sellerPayout, bill.total,
           profileRows[0].name, address],
       )
       inserted.push(rows[0])

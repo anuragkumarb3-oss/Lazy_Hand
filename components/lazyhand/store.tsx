@@ -1,9 +1,7 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import {
-  billFor,
   DEFAULT_DELIVERY_DISTANCE_KM,
   seedHistory,
   seedProducts,
@@ -67,8 +65,6 @@ export const emptyProfile: Profile = {
   vehicle: '',
 }
 
-let orderCounter = 2410
-
 function createOtp() {
   const values = new Uint32Array(1)
   globalThis.crypto.getRandomValues(values)
@@ -82,7 +78,6 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
   const [conflictProductId, setConflictProductId] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
-  const orderAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
 
   const setCatalogData = useCallback((nextShops: Shop[], nextProducts: Product[]) => {
     setShops(nextShops)
@@ -103,13 +98,14 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
     (productId: string) => {
       const product = productById[productId]
       if (!product || (product.demoOnly && !allowDemoOrders) || !product.inStock || !shopById[product.shopId]?.open) return
+      const stockLimit = Math.min(20, Math.max(0, product.stock ?? 20))
       setCart(current => {
         const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
         if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
           setConflictProductId(productId)
           return current
         }
-        return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, 20) } }
+        return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [productId]: Math.min((current.items[productId] ?? 0) + 1, stockLimit) } }
       })
     },
     [allowDemoOrders, productById, shopById],
@@ -117,6 +113,7 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
 
   const addCatalogItem = useCallback((product: Product, shop: Shop) => {
     if ((product.demoOnly && !allowDemoOrders) || !product.inStock || !shop.open) return
+    const stockLimit = Math.min(20, Math.max(0, product.stock ?? 20))
     setShops(current => current.some(item => item.id === shop.id) ? current : [...current, shop])
     setProducts(current => current.some(item => item.id === product.id) ? current : [...current, product])
     setCart(current => {
@@ -125,7 +122,7 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
         setConflictProductId(product.id)
         return current
       }
-      return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [product.id]: Math.min((current.items[product.id] ?? 0) + 1, 20) } }
+      return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [product.id]: Math.min((current.items[product.id] ?? 0) + 1, stockLimit) } }
     })
   }, [allowDemoOrders, productById])
 
@@ -153,76 +150,11 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
   )
 
   const placeOrder = useCallback(
-    async (payment: Payment, address: string) => {
+    async (_payment: Payment, _address: string) => {
       if (!cart.shopId || cartLines.length === 0) return null
-      const groupedLines = Array.from(cartLines.reduce((groups, line) => {
-        const group = groups.get(line.product.shopId) ?? []
-        group.push(line)
-        groups.set(line.product.shopId, group)
-        return groups
-      }, new Map<string, typeof cartLines>()).entries())
-      const multiStore = groupedLines.length > 1
-      const demoCheckout = allowDemoOrders && cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly)
-      let userId: string | null = null
-      if (!demoCheckout) {
-        const { data: { user }, error: authError } = await createClient().auth.getUser()
-        if (authError) throw new Error('We could not verify your session. Please sign in again.')
-        userId = user?.id ?? null
-      }
-      let orders: Order[]
-
-      if (userId) {
-        const requestBody = {
-          stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
-          deliveryDistanceKm: cart.deliveryDistanceKm,
-          address,
-        }
-        const fingerprint = JSON.stringify(requestBody)
-        if (!orderAttempt.current || orderAttempt.current.fingerprint !== fingerprint) {
-          orderAttempt.current = { fingerprint, key: crypto.randomUUID() }
-        }
-        const response = await fetch('/api/orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': orderAttempt.current.key },
-          body: JSON.stringify(requestBody),
-        })
-        const result = await response.json().catch(() => null) as { orders?: Order[]; order?: Order; error?: string } | null
-        const savedOrders = result?.orders ?? (result?.order ? [result.order] : [])
-        if (!response.ok || savedOrders.length !== groupedLines.length) throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
-        orderAttempt.current = null
-        orders = savedOrders.map(order => ({ ...order, pickupOtp: createOtp(), deliveryOtp: createOtp(), pickupVerified: false, paymentConfirmed: false }))
-      } else {
-        orders = groupedLines.map(([shopId, lines], index) => {
-          orderCounter += 1
-          const subtotal = lines.reduce((sum, line) => sum + line.product.price * line.qty, 0)
-          const bill = billFor(subtotal, cart.deliveryDistanceKm, false, { multiStore })
-          if (multiStore && index > 0) {
-            bill.multiStoreSurcharge = 0
-            bill.total -= 39
-          }
-          return {
-            id: `LH${orderCounter}`,
-            shopId,
-            lines: lines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
-            ...bill,
-            payment,
-            status: 'placed',
-            placedAt: 'Today',
-            customerName: profile.name || 'Guest',
-            address,
-            pickupOtp: createOtp(),
-            deliveryOtp: createOtp(),
-            pickupVerified: false,
-            paymentConfirmed: false,
-          }
-        })
-      }
-
-      setOrders(list => [...orders, ...list])
-      setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
-      return orders[0] ?? null
+      throw new Error('Delivery route distance cannot be confirmed yet. Checkout is temporarily unavailable.')
     },
-    [allowDemoOrders, cart.shopId, cart.deliveryDistanceKm, cartLines, profile.name],
+    [cart.shopId, cartLines.length],
   )
 
   const reorder = useCallback(
