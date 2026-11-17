@@ -383,7 +383,6 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
       <CustomerHome
         area={area}
         onChangeLocation={() => setStage('location')}
-        onOpenStore={id => go({ kind: 'store', shopId: id })}
       />
     )
   else if (tab === 'categories') body = <CategoriesScreen />

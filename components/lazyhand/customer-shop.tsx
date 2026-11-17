@@ -6,7 +6,7 @@ import { CakeSlice, Carrot, ChevronDown, ChevronRight, Clock, Cookie, CupSoda, H
 import { cn } from '@/lib/utils'
 import { categories, categoryById, rupee, type CategoryId, type Product, type Shop } from './data'
 import { useLazyHand } from './store'
-import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
+import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton } from './ui'
 
 function ProductRow({ product, showShop }: { product: Product; showShop?: boolean }) {
   const { cart, addItem, removeItem, shopById } = useLazyHand()
@@ -118,11 +118,12 @@ function categoryIdForName(name: string) {
   })?.id
 }
 
-function MoreProducts({ products }: { products: Product[] }) {
+function MoreProducts({ products, loading }: { products: Product[]; loading: boolean }) {
   const { cart, addItem, shopById } = useLazyHand()
   const featuredProducts = [...products]
     .filter(product => product.inStock && shopById[product.shopId])
     .sort((first, second) => Number(shopById[second.shopId].open) - Number(shopById[first.shopId].open))
+    .filter((product, index, sorted) => sorted.findIndex(candidate => `${candidate.name.trim().toLowerCase()}|${candidate.unit.trim().toLowerCase()}` === `${product.name.trim().toLowerCase()}|${product.unit.trim().toLowerCase()}`) === index)
     .slice(0, 8)
 
   return (
@@ -138,7 +139,7 @@ function MoreProducts({ products }: { products: Product[] }) {
         return <li key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
           <div className="relative aspect-square bg-[#F7F7F8]">
             {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
-            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C')}>{canAdd ? 'Available' : 'Shop closed'}</span>
+            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{canAdd ? 'Available' : 'Shop closed'}</span>
           </div>
           <div className="flex min-h-32 flex-1 flex-col p-2.5">
             <p className="line-clamp-2 min-h-9 text-xs font-semibold leading-4">{product.name}</p>
@@ -151,14 +152,14 @@ function MoreProducts({ products }: { products: Product[] }) {
             </div>
           </div>
         </li>
-      })}</ul> : <p className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">Available seller products will appear here.</p>}
+      })}</ul> : <p role={loading ? 'status' : undefined} className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">{loading ? 'Loading products…' : 'Available seller products will appear here.'}</p>}
     </section>
   )
 }
 
 export function CustomerHome({ area, onChangeLocation }: { area: string; onChangeLocation: () => void }) {
   const { shops, products, setCatalogData } = useLazyHand()
-  const { data: catalog, error: catalogError } = useSWR('home-catalog-categories', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
+  const { data: catalog, error: catalogError } = useSWR('/api/catalog', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
   useEffect(() => {
     if (!catalog && !catalogError) return
     if (!catalog) {
@@ -207,6 +208,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
     id: category.id,
     name: category.name,
     scope: 'general' as const,
+    parent_id: null,
     image_url: null,
     icon: category.short,
     display_order: index,
@@ -288,15 +290,15 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
               <div className="mt-3 grid grid-cols-3 gap-2.5">
                 {sectionCategories.slice(0, 9).map(category => {
                   const categoryId = categoryIdForName(category.name)
-                  const matchedProducts = categoryId ? products.filter(product => product.category === categoryId && product.inStock) : []
+                  const matchedProducts = catalog && categoryId ? products.filter(product => product.category === categoryId && product.inStock) : []
                   const tileProducts = [...matchedProducts]
                     .filter(product => product.imageUrl)
                     .sort((first, second) => Number(shopById[second.shopId]?.open) - Number(shopById[first.shopId]?.open))
                     .slice(0, 4)
                   return (
                     <button key={category.id} type="button" aria-pressed={activeCategory === category.id} onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)} className={cn('flex min-w-0 flex-col items-center rounded-[1.35rem] border p-2 text-center transition active:scale-[0.98]', activeCategory === category.id ? 'border-brand bg-[#FFF5E7] shadow-md' : 'border-[#F0EFF3] bg-[#F5F5F8]')}>
-                      <span className="relative grid aspect-square w-full grid-cols-2 gap-1 overflow-hidden rounded-[1rem] bg-white p-1">
-                        {tileProducts.length ? tileProducts.map((product, index) => <span key={product.id} className={cn('min-w-0 overflow-hidden rounded-[0.8rem] bg-white', tileProducts.length === 1 && 'col-span-2 row-span-2')}><img src={product.imageUrl} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
+                      <span className={cn('relative grid aspect-square w-full gap-1 overflow-hidden rounded-[1rem] bg-white p-1', tileProducts.length === 1 ? 'grid-cols-1 grid-rows-1' : tileProducts.length === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-2 grid-rows-2')}>
+                        {tileProducts.length ? tileProducts.map(product => <span key={product.id} className="min-w-0 overflow-hidden rounded-[0.8rem] bg-white"><img src={product.imageUrl} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 row-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
                         {matchedProducts.length > 4 && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-semibold text-muted-ink shadow-sm">+{matchedProducts.length - 4} more</span>}
                       </span>
                       <span className="mt-3 line-clamp-2 min-h-9 text-[13px] font-semibold leading-[1.15rem]">{category.name}</span>
@@ -309,7 +311,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
 
             {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
 
-            <MoreProducts products={products} />
+            <MoreProducts products={catalog ? products : []} loading={!catalog && !catalogError} />
             <section aria-label="More ways to shop" className="mt-6 grid grid-cols-2 gap-3"><a href="/restaurants" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><ShoppingBag className="size-4 text-brand-deep" aria-hidden="true" />Restaurants</a><a href="/categories" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><Store className="size-4 text-brand-deep" aria-hidden="true" />Browse stores</a></section>
           </>
         )}
@@ -328,8 +330,9 @@ const categoryIcons: Record<string, LucideIcon> = {
 }
 
 function CategoryIcon({ category, restaurant }: { category: BrowserCategory; restaurant: boolean }) {
-  const Icon = category.icon ? categoryIcons[category.icon] : undefined
-  if (!Icon) return <span className="text-xs font-bold">{category.icon?.slice(0, 2).toUpperCase() || (restaurant ? 'FO' : 'ST')}</span>
+  const Icon = (category.icon ? categoryIcons[category.icon] : undefined)
+    ?? (categoryIdForName(category.name) ? categoryById[categoryIdForName(category.name)!].Icon : undefined)
+    ?? (restaurant ? Utensils : Package)
   return <Icon className="size-5" aria-hidden="true" />
 }
 
