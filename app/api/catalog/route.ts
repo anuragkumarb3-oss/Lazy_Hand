@@ -4,13 +4,12 @@ import { shopAvailability, type ShopHour } from '@/lib/shop-status'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-)
-
 export async function GET(request: Request) {
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  )
   const requestedArea = new URL(request.url).searchParams.get('area')
   const locality = requestedArea === null ? null : requestedArea.split(',')[0].trim().toLocaleLowerCase()
   const [{ data: categories, error: categoryError }, { data: profiles, error: profileError }] = await Promise.all([

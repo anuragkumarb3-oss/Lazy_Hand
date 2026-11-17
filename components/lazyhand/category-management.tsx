@@ -40,7 +40,6 @@ type SellerApplication = {
   requested_at: string
   profile?: { name: string | null; phone: string | null; shop_name: string | null }
 }
-const supabase = createClient()
 type ManagementData = { categories: Category[]; products: CatalogItem[]; applications: SellerApplication[] }
 const managementFetcher = async (url: string): Promise<ManagementData> => {
   const response = await fetch(url, { cache: 'no-store' })
@@ -62,7 +61,7 @@ async function mutateCatalog(payload: Record<string, unknown>) {
 
 function useIdentity() {
   return useSWR('catalog-identity', async () => {
-    const { data: { user }, error } = await supabase.auth.getUser()
+    const { data: { user }, error } = await createClient().auth.getUser()
     if (error) throw error
     if (!user) return null
     const response = await fetch('/api/profile', { cache: 'no-store' })
@@ -125,6 +124,7 @@ export function CategoryManagement() {
     if (!file || !draft) return
     if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) { setFailure('Choose an image under 5 MB.'); return }
     setBusy(true); setFailure('')
+    const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setBusy(false); setFailure('Sign in again to upload an image.'); return }
     const key = `admin/${user.id}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '-')}`
@@ -229,6 +229,7 @@ export function SellerCatalog() {
     if (!file || !identity.data) return
     if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) { setMessage('Choose an image under 5 MB.'); return }
     const key = `${identity.data.id}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '-')}`
+    const supabase = createClient()
     const { error: uploadError } = await supabase.storage.from('catalog-media').upload(key, file, { contentType: file.type })
     if (uploadError) { setMessage(uploadError.message); return }
     setImages(current => [...current, supabase.storage.from('catalog-media').getPublicUrl(key).data.publicUrl])
