@@ -3,9 +3,9 @@
 import { useMemo, useState } from 'react'
 import useSWR from 'swr'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronDown, ChevronRight, Clock, MapPin, Search, Share2, ShoppingBag, Star, Store, X } from 'lucide-react'
+import { CakeSlice, Carrot, ChevronDown, ChevronRight, Clock, Cookie, CupSoda, House, IceCreamCone, MapPin, Milk, Package, Pizza, Sandwich, Search, Share2, ShoppingBag, ShoppingBasket, Soup, Star, Store, Utensils, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { categories, categoryById, rupee, type CategoryId, type Product } from './data'
+import { categories, categoryById, rupee, type CategoryId, type Product, type Shop } from './data'
 import { useLazyHand } from './store'
 import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
 
@@ -247,22 +247,90 @@ export function CustomerHome({ area, onChangeLocation, onOpenStore }: { area: st
   )
 }
 
+type BrowserCategory = { id: string; name: string; scope: 'general' | 'restaurant'; parent_id: string | null; image_url: string | null; icon: string | null; display_order: number }
+type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[] }
+
+const categoryIcons: Record<string, LucideIcon> = {
+  'cake-slice': CakeSlice, carrot: Carrot, cookie: Cookie, 'cup-soda': CupSoda, house: House,
+  'ice-cream-cone': IceCreamCone, milk: Milk, package: Package, pizza: Pizza, sandwich: Sandwich,
+  'shopping-basket': ShoppingBasket, soup: Soup, utensils: Utensils,
+}
+
+function CategoryIcon({ category, restaurant }: { category: BrowserCategory; restaurant: boolean }) {
+  const Icon = category.icon ? categoryIcons[category.icon] : undefined
+  if (!Icon) return <span className="text-xs font-bold">{category.icon?.slice(0, 2).toUpperCase() || (restaurant ? 'FO' : 'ST')}</span>
+  return <Icon className="size-5" aria-hidden="true" />
+}
+
 export function CategoriesScreen() {
+  const { data: categories = [], error: categoryError, isLoading: categoriesLoading } = useSWR<BrowserCategory[]>('browser-catalog-categories', async () => {
+    const { data, error } = await createClient().from('catalog_categories').select('id,name,scope,parent_id,image_url,icon,display_order').eq('is_active', true).eq('is_visible', true).order('display_order').order('name')
+    if (error) throw error
+    return data as BrowserCategory[]
+  })
+  const { data: products = [], error: productError, isLoading: productsLoading } = useSWR<BrowserProduct[]>('browser-catalog-products', async () => {
+    const { data, error } = await createClient().rpc('get_public_catalog_products')
+    if (error) throw error
+    return data as BrowserProduct[]
+  })
+  const { cart, addCatalogItem, removeItem } = useLazyHand()
+  const [scope, setScope] = useState<'general' | 'restaurant'>('general')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const scopedCategories = categories.filter(category => category.scope === scope)
+  const activeCategory = scopedCategories.some(category => category.id === selectedId) ? selectedId : scopedCategories[0]?.id ?? null
+  const selectedCategory = scopedCategories.find(category => category.id === activeCategory)
+  const visibleCategories = scopedCategories
+  const visibleProducts = products.filter(product => product.category_id === activeCategory && product.product_type === (scope === 'restaurant' ? 'restaurant' : 'retail'))
+
+  const add = (item: BrowserProduct) => {
+    const shop: Shop = { id: item.owner_id, name: item.shop_name, kind: scope === 'restaurant' ? 'Restaurant' : 'Local store', hours: 'Open today', opensAt: '', rating: 0, eta: 'Nearby', open: true }
+    const product: Product = { id: item.id, shopId: item.owner_id, name: item.name, unit: item.unit, price: Number(item.price), category: 'snacks', inStock: item.is_available && item.stock > 0 }
+    addCatalogItem(product, shop)
+  }
+
   return (
-    <div className="flex min-h-svh flex-col gap-4 px-4 pb-40 pt-[max(env(safe-area-inset-top),20px)]">
-      <header>
-        <h1 className="text-lg font-bold">Explore</h1>
-        <p className="mt-1 text-xs text-muted-ink">Choose what you&apos;re looking for.</p>
+    <main className="flex h-[calc(100svh-70px)] min-h-[540px] flex-col bg-[#FAFAFA] pb-[max(env(safe-area-inset-bottom),8px)] text-ink">
+      <header className="shrink-0 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
+        <h1 className="text-xl font-extrabold tracking-tight">Explore</h1>
+        <p className="mt-1 text-xs text-muted-ink">Browse local shops and restaurant menus.</p>
+        <div className="mt-3 grid grid-cols-2 rounded-xl bg-[#F3F4F6] p-1" role="tablist" aria-label="Shopping destination">
+          {(['general', 'restaurant'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={scope === value} onClick={() => { setScope(value); setSelectedId(null) }} className={cn('min-h-10 rounded-lg text-sm font-semibold transition', scope === value ? 'bg-brand text-white shadow-sm' : 'text-muted-ink hover:text-ink')}>{value === 'general' ? 'Stores' : 'Restaurants'}</button>)}
+        </div>
       </header>
-      <a href="/categories" className="flex min-h-24 items-center justify-between rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34] transition hover:border-brand/40 hover:shadow-md">
-        <span><span className="block font-semibold">Stores</span><span className="mt-1 block text-xs text-muted-ink">Groceries, daily essentials and more</span></span>
-        <span className="grid size-11 place-items-center rounded-2xl bg-peach text-brand-deep"><Store className="size-5" aria-hidden="true" /></span>
-      </a>
-      <a href="/restaurants" className="flex min-h-24 items-center justify-between rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34] transition hover:border-brand/40 hover:shadow-md">
-        <span><span className="block font-semibold">Restaurants</span><span className="mt-1 block text-xs text-muted-ink">Browse restaurant menus</span></span>
-        <span className="grid size-11 place-items-center rounded-2xl bg-[#FCEEDB] text-brand-deep"><ShoppingBag className="size-5" aria-hidden="true" /></span>
-      </a>
-    </div>
+      {(categoryError || productError) ? <p role="alert" className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">Catalog data couldn&apos;t be loaded. Please try again shortly.</p> : categoriesLoading || productsLoading ? <p role="status" className="m-4 text-sm text-muted-ink">Loading catalog…</p> : scopedCategories.length === 0 ? <div className="m-4 rounded-2xl border border-dashed border-line bg-white p-6 text-center"><h2 className="font-semibold">No {scope === 'general' ? 'store' : 'restaurant'} categories yet</h2><p className="mt-2 text-sm text-muted-ink">Categories published by LazyHand will appear here.</p></div> : (
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(78px,24%)_1fr] overflow-hidden">
+          <aside aria-label={`${scope === 'general' ? 'Store' : 'Restaurant'} categories`} className="min-h-0 overflow-y-auto border-r border-line bg-white [scrollbar-width:thin]">
+            <nav className="flex flex-col gap-1 p-2" aria-label="Catalog categories">
+              {visibleCategories.map(category => <button key={category.id} type="button" aria-current={activeCategory === category.id ? 'true' : undefined} onClick={() => setSelectedId(category.id)} className={cn('relative flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-xl px-1.5 py-2 text-center transition', activeCategory === category.id ? 'bg-[#FCE8E8] text-brand-deep' : 'text-muted-ink hover:bg-[#F8F8F8]')}>
+                {activeCategory === category.id && <span aria-hidden="true" className="absolute inset-y-2 left-0 w-1 rounded-full bg-brand" />}
+                {category.image_url ? <img src={category.image_url} alt="" className="size-10 rounded-lg object-cover" /> : <span className="grid size-10 place-items-center rounded-lg bg-[#FCE8E8] text-brand-deep"><CategoryIcon category={category} restaurant={scope === 'restaurant'} /></span>}
+                <span className="line-clamp-2 text-[11px] font-semibold leading-tight">{category.name}</span>
+              </button>)}
+            </nav>
+          </aside>
+          <section aria-labelledby="catalog-category-heading" className="min-h-0 overflow-y-auto px-2.5 py-3 [scrollbar-width:thin] sm:px-4">
+            <h2 id="catalog-category-heading" className="mb-3 text-sm font-bold leading-tight">{selectedCategory?.name ?? (scope === 'general' ? 'Stores' : 'Restaurants')}</h2>
+            {visibleProducts.length ? <ul className="grid grid-cols-2 gap-2.5 sm:gap-3">{visibleProducts.map(item => {
+              const qty = cart.items[item.id] ?? 0
+              return <li key={item.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[#E9E9EC] bg-white shadow-[0_3px_12px_-10px_#111827]">
+                <div className="relative aspect-square bg-[#F7F7F8]">
+                  {item.images?.[0] ? <img src={item.images[0]} alt={item.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-xs font-semibold text-muted-ink">{scope === 'restaurant' ? 'Menu item' : 'Product'}</div>}
+                  {item.product_type === 'restaurant' && item.is_vegetarian !== null && <span className={cn('absolute left-1.5 top-1.5 rounded border bg-white/95 px-1.5 py-0.5 text-[9px] font-bold', item.is_vegetarian ? 'border-green-600 text-green-700' : 'border-red-600 text-red-700')}>{item.is_vegetarian ? 'VEG' : 'NON-VEG'}</span>}
+                  {item.stock <= 0 && <span className="absolute inset-x-0 bottom-0 bg-ink/75 px-2 py-1 text-center text-[10px] font-semibold text-white">Out of stock</span>}
+                </div>
+                <div className="flex min-h-[112px] flex-1 flex-col p-2">
+                  <p className="line-clamp-2 min-h-8 text-xs font-semibold leading-4">{item.name}</p>
+                  <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-ink">{item.unit || item.shop_name}</p>
+                  {item.variants?.length > 0 && <p className="mt-1 line-clamp-1 text-[9px] text-muted-ink">Options: {item.variants.map(option => option.name).filter(Boolean).join(', ')}</p>}
+                  {item.addons?.length > 0 && <p className="line-clamp-1 text-[9px] text-muted-ink">Add-ons: {item.addons.map(option => option.name).filter(Boolean).join(', ')}</p>}
+                  <div className="mt-auto flex items-center justify-between gap-1 pt-2"><span className="text-xs font-extrabold">{rupee(Number(item.price))}</span><QtyControl qty={qty} onAdd={() => add(item)} onRemove={() => removeItem(item.id)} disabled={!item.is_available || item.stock <= 0} label={item.name} /></div>
+                </div>
+              </li>
+            })}</ul> : <div className="rounded-xl border border-dashed border-line bg-white p-4 text-center"><p className="text-xs font-semibold">No items in this category yet</p><p className="mt-1 text-[10px] leading-4 text-muted-ink">Available listings will appear here when a seller adds them.</p></div>}
+          </section>
+        </div>
+      )}
+    </main>
   )
 }
 

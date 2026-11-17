@@ -33,6 +33,7 @@ type LazyHandState = {
   setOrders: (orders: Order[]) => void
   setProfile: (profile: Profile) => void
   addItem: (productId: string) => void
+  addCatalogItem: (product: Product, shop: Shop) => void
   removeItem: (productId: string) => void
   setDeliveryDistance: (distanceKm: number) => void
   resolveConflict: (replace: boolean) => void
@@ -105,6 +106,20 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     },
     [productById, shopById],
   )
+
+  const addCatalogItem = useCallback((product: Product, shop: Shop) => {
+    if (!product.inStock || !shop.open) return
+    setShops(current => current.some(item => item.id === shop.id) ? current : [...current, shop])
+    setProducts(current => current.some(item => item.id === product.id) ? current : [...current, product])
+    setCart(current => {
+      const currentShopIds = new Set(Object.entries(current.items).filter(([, qty]) => qty > 0).map(([id]) => productById[id]?.shopId).filter(Boolean))
+      if (currentShopIds.size > 0 && !currentShopIds.has(product.shopId)) {
+        setConflictProductId(product.id)
+        return current
+      }
+      return { ...current, shopId: current.shopId ?? product.shopId, items: { ...current.items, [product.id]: Math.min((current.items[product.id] ?? 0) + 1, 20) } }
+    })
+  }, [productById])
 
   const removeItem = useCallback((productId: string) => {
     setCart(current => {
@@ -273,6 +288,7 @@ export function LazyHandProvider({ children }: { children: ReactNode }) {
     setOrders,
     setProfile,
     addItem,
+    addCatalogItem,
     removeItem,
     setDeliveryDistance,
     resolveConflict,

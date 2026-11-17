@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const acceptedDistances = DELIVERY_SLABS.map(slab => slab.maxDistanceKm)
   if (address.length < 3 || address.length > 500) return NextResponse.json({ error: 'Add a valid delivery address.' }, { status: 400 })
   if (!acceptedDistances.some(distance => distance === deliveryDistanceKm)) return NextResponse.json({ error: 'Choose a valid delivery distance.' }, { status: 400 })
-  if (!Array.isArray(body.stores) || !body.stores.length || body.stores.length > seedShops.length) return NextResponse.json({ error: 'Add items from at least one available store.' }, { status: 400 })
+  if (!Array.isArray(body.stores) || !body.stores.length || body.stores.length > 10) return NextResponse.json({ error: 'Add items from at least one available store.' }, { status: 400 })
 
   const storeIds = new Set<string>()
   const normalizedStores: { shopId: string; lines: OrderLine[]; itemTotal: number }[] = []
@@ -104,10 +104,10 @@ export async function POST(request: Request) {
     if (!rawStore || typeof rawStore !== 'object') return NextResponse.json({ error: 'The store selection is invalid.' }, { status: 400 })
     const store = rawStore as { shopId?: unknown; lines?: unknown }
     const shopId = typeof store.shopId === 'string' ? store.shopId : ''
-    const shop = seedShops.find(item => item.id === shopId)
-    if (!shop || !shop.open || storeIds.has(shopId)) return NextResponse.json({ error: 'A selected store is unavailable or duplicated.' }, { status: 409 })
+    const seededShop = seedShops.find(item => item.id === shopId)
+    if ((!seededShop && !/^[0-9a-f-]{36}$/i.test(shopId)) || seededShop && !seededShop.open || storeIds.has(shopId)) return NextResponse.json({ error: 'A selected store is unavailable or duplicated.' }, { status: 409 })
     storeIds.add(shopId)
-    if (!Array.isArray(store.lines) || store.lines.length === 0 || store.lines.length > seedProducts.length) return NextResponse.json({ error: 'Add at least one available item per store.' }, { status: 400 })
+    if (!Array.isArray(store.lines) || store.lines.length === 0 || store.lines.length > 100) return NextResponse.json({ error: 'Add at least one available item per store.' }, { status: 400 })
 
     const quantities = new Map<string, number>()
     for (const rawLine of store.lines) {
@@ -120,10 +120,21 @@ export async function POST(request: Request) {
     }
 
     const lines: OrderLine[] = []
-    for (const [productId, qty] of quantities) {
-      const product = seedProducts.find(item => item.id === productId && item.shopId === shopId)
-      if (!product || !product.inStock) return NextResponse.json({ error: 'An item is unavailable. Refresh and try again.' }, { status: 409 })
-      lines.push({ productId: product.id, name: product.name, price: product.price, qty })
+    if (seededShop) {
+      for (const [productId, qty] of quantities) {
+        const product = seedProducts.find(item => item.id === productId && item.shopId === shopId)
+        if (!product || !product.inStock) return NextResponse.json({ error: 'An item is unavailable. Refresh and try again.' }, { status: 409 })
+        lines.push({ productId: product.id, name: product.name, price: product.price, qty })
+      }
+    } else {
+      const { data: catalogProducts, error: catalogError } = await supabase.from('catalog_products').select('id,owner_id,name,price,stock,is_available').in('id', Array.from(quantities.keys())).eq('owner_id', shopId).eq('is_available', true).gt('stock', 0)
+      if (catalogError) return NextResponse.json({ error: 'Catalog items could not be verified.' }, { status: 500 })
+      const verifiedProducts = new Map((catalogProducts ?? []).map(product => [product.id, product]))
+      for (const [productId, qty] of quantities) {
+        const product = verifiedProducts.get(productId)
+        if (!product || product.stock < qty) return NextResponse.json({ error: 'An item is unavailable. Refresh and try again.' }, { status: 409 })
+        lines.push({ productId: product.id, name: product.name, price: Number(product.price), qty })
+      }
     }
     normalizedStores.push({ shopId, lines, itemTotal: lines.reduce((sum, line) => sum + line.price * line.qty, 0) })
   }
