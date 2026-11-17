@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Banknote, Bike, Calculator, Check, ClipboardList, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Store, UserRound, X } from 'lucide-react'
+import { Banknote, Bike, Calculator, Check, ClipboardList, Clock3, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { billFor, categories, categoryById, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
+import { createClient } from '@/lib/supabase/client'
+import { billFor, categories, categoryById, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, seedHistory, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
 
@@ -11,11 +12,11 @@ const MANAGED_SHOP_ID = 'gupta'
 
 function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: string; right?: React.ReactNode }) {
   return (
-    <header className="bg-gradient-to-br from-brand to-[#EF4444] px-4 pb-5 pt-[max(env(safe-area-inset-top),18px)] text-white">
-      <div className="mx-auto flex max-w-md items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium text-white/70">{eyebrow}</p>
-          <h1 className="truncate text-lg font-bold">{title}</h1>
+    <header className="border-b border-line bg-white px-4 pb-4 pt-[max(env(safe-area-inset-top),16px)] sm:px-6">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3">
+        <div className="min-w-0 border-l-[3px] border-brand pl-3">
+          <p className="text-xs font-semibold text-brand-deep">{eyebrow}</p>
+          <h1 className="truncate text-lg font-bold tracking-tight text-ink sm:text-xl">{title}</h1>
         </div>
         {right}
       </div>
@@ -25,9 +26,9 @@ function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: stri
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-3">
-      <dt className="text-[11px] text-muted-ink">{label}</dt>
-      <dd className="text-lg font-bold">{value}</dd>
+    <div className="min-w-0 rounded-2xl border border-line bg-white p-3.5 sm:p-4">
+      <dt className="text-xs font-medium leading-5 text-muted-ink">{label}</dt>
+      <dd className="mt-1 truncate text-xl font-bold tracking-tight tabular-nums text-ink sm:text-2xl">{value}</dd>
     </div>
   )
 }
@@ -65,199 +66,163 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
   )
 }
 
-export function ShopkeeperDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, products, shopById, toggleShopOpen, toggleStock, addProduct, updateProduct, setOrderStatus } = useLazyHand()
-  const [tab, setTab] = useState<'orders' | 'products' | 'calculator' | 'account'>('products')
+export function ShopkeeperDashboard({ onExit, previewMode = false }: { onExit: () => void; previewMode?: boolean }) {
+  const { products, shopById, profile, toggleShopOpen, toggleStock, addProduct, updateProduct } = useLazyHand()
+  const [tab, setTab] = useState<'orders' | 'products' | 'earnings' | 'account'>('orders')
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [productQuery, setProductQuery] = useState('')
+  const [showProfitCalculator, setShowProfitCalculator] = useState(false)
+  const [previewOrders, setPreviewOrders] = useState(() => seedHistory.filter(order => order.shopId === MANAGED_SHOP_ID))
   const shop = shopById[MANAGED_SHOP_ID]
-  const shopOrders = orders.filter(o => o.shopId === MANAGED_SHOP_ID && o.placedAt === 'Today')
-  const incoming = shopOrders.filter(o => o.status === 'placed')
-  const packing = shopOrders.filter(o => o.status === 'accepted')
-  const handedOver = shopOrders.filter(o => ['ready', 'picked', 'delivered'].includes(o.status))
-  const revenue = shopOrders.filter(o => o.status !== 'rejected').reduce((s, o) => s + o.itemTotal, 0)
-  const myProducts = products.filter(p => p.shopId === MANAGED_SHOP_ID)
+  const shopOrders = previewMode ? previewOrders.filter(order => order.placedAt === 'Today') : []
+  const setPreviewOrderStatus = (orderId: string, status: Order['status']) => {
+    setPreviewOrders(current => current.map(order => order.id === orderId ? { ...order, status } : order))
+  }
+  const incoming = shopOrders.filter(order => order.status === 'placed')
+  const packing = shopOrders.filter(order => order.status === 'accepted')
+  const ready = shopOrders.filter(order => order.status === 'ready')
+  const outForDelivery = shopOrders.filter(order => order.status === 'picked')
+  const completed = shopOrders.filter(order => order.status === 'delivered')
+  const revenue = shopOrders.filter(order => order.status !== 'rejected').reduce((sum, order) => sum + order.itemTotal, 0)
+  const myProducts = previewMode ? products.filter(product => product.shopId === MANAGED_SHOP_ID) : []
+  const visibleProducts = myProducts.filter(product => product.name.toLowerCase().includes(productQuery.toLowerCase()))
   const inStockCount = myProducts.filter(product => product.inStock).length
   const openProductForm = () => {
+    if (!previewMode) return
     setTab('products')
     setEditingProduct(null)
     setShowProductForm(true)
   }
 
   return (
-    <div className="pb-24">
+    <div className="min-h-svh bg-[#F7F8FA] pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-ink">
       <PartnerHeader
-        eyebrow="Shopkeeper · sample shop"
-        title={shop.name}
-        right={
-          <div className="flex items-center gap-2">
+        eyebrow={previewMode ? 'Seller workspace · preview' : 'Seller workspace'}
+        title={previewMode ? shop.name : profile.shopName || 'Your shop'}
+        right={previewMode ? (
+          <div className="flex items-center gap-2 rounded-xl border border-line bg-[#F7F8FA] px-3 py-2">
             <span className="text-xs font-semibold">{shop.open ? 'Open' : 'Closed'}</span>
             <Toggle checked={shop.open} onChange={() => toggleShopOpen(shop.id)} label="Shop open for orders" />
           </div>
-        }
+        ) : <span className="rounded-full bg-[#FCE8E8] px-3 py-1.5 text-xs font-semibold text-[#B91F1F]">Status unavailable</span>}
       />
-      <PreviewNote detail="Shop status pauses customer orders; accept new orders, pack them, and hand them off to a rider." />
-      <div className="mx-auto max-w-md px-4">
-        {tab === 'orders' && (
-          <section aria-label="Shop visibility" className="mt-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', shop.open ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FEE2E2] text-[#B91C1C]')}>
-                  {shop.open ? <Eye className="size-5" aria-hidden="true" /> : <Store className="size-5" aria-hidden="true" />}
-                </span>
-                <div>
-                  <p className="text-sm font-bold">{shop.open ? 'Your shop is visible' : 'Your shop is hidden from orders'}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-ink">{shop.open ? `${inStockCount} products are available for customers to browse.` : 'Open your shop to let nearby customers place orders.'}</p>
-                </div>
-              </div>
-              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold', shop.open ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]')}>{shop.open ? 'LIVE' : 'CLOSED'}</span>
-            </div>
-            <button type="button" onClick={openProductForm} className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand text-sm font-semibold text-white transition hover:bg-brand-deep">
-              <Plus className="size-4" aria-hidden="true" /> Add a product
-            </button>
-          </section>
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
+        <section className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-muted-ink">Welcome back</p>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">Here&apos;s your shop at a glance</h1>
+        </section>
+
+        {previewMode && (
+          <div role="status" className="flex items-start gap-3 rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] px-4 py-3 text-sm text-[#7F1D1D]">
+            <Eye className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <p><strong>Preview data</strong> · Orders and product changes shown here are temporary examples, not live seller records.</p>
+          </div>
         )}
+
+        <section aria-label="Shop visibility" className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white p-4 shadow-[0_2px_12px_-10px_#20212433] sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', previewMode && shop.open ? 'bg-[#DCFCE7] text-[#15803D]' : 'bg-[#FCE8E8] text-[#B91F1F]')}>
+              {previewMode && shop.open ? <Eye className="size-5" aria-hidden="true" /> : <Store className="size-5" aria-hidden="true" />}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold">{previewMode ? shop.open ? 'Shop is visible' : 'Shop is closed' : 'Shop visibility isn’t connected'}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-ink">{previewMode ? `${inStockCount} sample products · ordering status is local to this preview` : 'Live availability and product totals are not available in this workspace yet.'}</p>
+            </div>
+          </div>
+          <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold', previewMode && shop.open ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FCE8E8] text-[#991B1B]')}>{previewMode ? shop.open ? 'LIVE' : 'CLOSED' : 'UNAVAILABLE'}</span>
+        </section>
+
+        <section aria-labelledby="quick-actions-heading">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div><h2 id="quick-actions-heading" className="text-lg font-bold">Quick actions</h2><p className="mt-0.5 text-sm text-muted-ink">Common tasks, right at hand.</p></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <button type="button" onClick={() => previewMode ? openProductForm() : window.location.assign('/seller/catalog')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><Plus className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Add product</span>
+            </button>
+            <button type="button" onClick={() => setTab('products')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Package className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Manage products</span>
+            </button>
+            <button type="button" onClick={() => setTab('earnings')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Banknote className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">View earnings</span>
+            </button>
+            <button type="button" onClick={() => setTab('account')} className="flex min-h-[76px] items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-[#E9B6B6] active:scale-[0.99]">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-[#4B5563]"><Store className="size-5" aria-hidden="true" /></span><span className="text-sm font-semibold">Shop settings</span>
+            </button>
+          </div>
+        </section>
+
         {tab === 'orders' && (
           <>
-            <dl className="mt-4 grid grid-cols-3 gap-2">
-              <Stat label="New" value={String(incoming.length)} />
-              <Stat label="Today" value={String(shopOrders.length)} />
-              <Stat label="Sales" value={rupee(revenue)} />
-            </dl>
-            {!shop.open && (
-              <p className="mt-3 rounded-xl bg-[#FEF2F2] p-3 text-xs text-[#991B1B]">Your shop is closed. Customers can see it but can&apos;t order until you switch it on.</p>
-            )}
-            <section aria-labelledby="new-orders" className="mt-5">
-              <h2 id="new-orders" className="text-sm font-bold">New orders</h2>
-              <div className="mt-2 flex flex-col gap-2.5">
-                {incoming.length === 0 && <Empty Icon={ClipboardList} title="No new orders" detail="Accept or decline a demo order. Accepted orders move to Packing; no customer is notified." />}
-                {incoming.map(order => (
-                  <article key={order.id} className="rounded-2xl border-2 border-brand bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">#{order.id}</p>
-                      <p className="text-sm font-bold">{rupee(order.itemTotal)}</p>
-                    </div>
-                    <p className="text-xs text-muted-ink">
-                      {order.customerName} · Cash on delivery
-                    </p>
-                    <OrderLines order={order} />
-                    <p className="mt-3 rounded-xl bg-[#FFF8F1] px-3 py-2 text-xs leading-5 text-brand-deep">
-                      Customer pays {rupee(order.total)} · seller receives {rupee(order.sellerPayout)} after {rupee(order.sellerDeliveryDeduction)} delivery contribution · rider payout {rupee(order.riderPayout)}
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <SecondaryButton onClick={() => setOrderStatus(order.id, 'rejected')} className="h-10 text-xs text-[#B91C1C]">
-                        <X className="size-4" aria-hidden="true" /> Decline
-                      </SecondaryButton>
-                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'accepted')} className="h-10 text-xs">
-                        <Check className="size-4" aria-hidden="true" /> Accept
-                      </PrimaryButton>
-                    </div>
-                  </article>
-                ))}
-              </div>
+            <section aria-labelledby="overview-heading">
+              <div className="mb-3 flex items-end justify-between gap-3"><div><h2 id="overview-heading" className="text-lg font-bold">Today&apos;s overview</h2><p className="mt-0.5 text-sm text-muted-ink">A quick read on today&apos;s shop activity.</p></div></div>
+              <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat label="New orders" value={previewMode ? String(incoming.length) : '—'} />
+                <Stat label="Today’s orders" value={previewMode ? String(shopOrders.length) : '—'} />
+                <Stat label="Today’s sales" value={previewMode ? rupee(revenue) : '—'} />
+                <Stat label="Pending orders" value={previewMode ? String(incoming.length + packing.length + ready.length + outForDelivery.length) : '—'} />
+              </dl>
+              {!previewMode && <p className="mt-2 text-xs text-muted-ink">Live order and financial reporting isn&apos;t connected to seller accounts yet.</p>}
             </section>
-            <section aria-labelledby="packing" className="mt-5">
-              <h2 id="packing" className="text-sm font-bold">Packing</h2>
-              <div className="mt-2 flex flex-col gap-2.5">
-                {packing.length === 0 && <p className="text-xs text-muted-ink">Accepted orders wait here until you pack them.</p>}
-                {packing.map(order => (
-                  <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">#{order.id}</p>
-                      <StatusPill tone="warn">Packing</StatusPill>
-                    </div>
-                    <OrderLines order={order} />
-                    <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready')} className="mt-3 h-10 text-xs">
-                      <Package className="size-4" aria-hidden="true" /> Packed · call rider
-                    </PrimaryButton>
-                  </article>
-                ))}
-              </div>
+
+            <section aria-labelledby="order-management-heading">
+              <div className="mb-3 flex items-end justify-between gap-3"><div><h2 id="order-management-heading" className="text-lg font-bold">Order management</h2><p className="mt-0.5 text-sm text-muted-ink">Keep every order moving to the next step.</p></div>{previewMode && <span className="rounded-full bg-[#FFF7ED] px-2.5 py-1 text-xs font-semibold text-[#9A3412]">Preview</span>}</div>
+              {previewMode ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {[['New', incoming, ClipboardList], ['Preparing', packing, Package], ['Ready for pickup', ready, Bike], ['Out for delivery', outForDelivery, Bike], ['Completed', completed, Check]].map(([label, group, Icon]) => {
+                    const ordersForStatus = group as Order[]
+                    const StatusIcon = Icon as typeof Package
+                    return <section key={label as string} className="rounded-2xl border border-line bg-white p-3 sm:p-4"><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold">{label as string}</h3><span className="grid size-8 place-items-center rounded-lg bg-[#FCE8E8] text-[#B91F1F]"><StatusIcon className="size-4" aria-hidden="true" /></span></div><p className="mt-2 text-2xl font-bold tabular-nums">{ordersForStatus.length}</p><p className="mt-1 text-xs text-muted-ink">{ordersForStatus.length ? 'Sample orders below' : 'No orders in this stage'}</p></section>
+                  })}
+                </div>
+              ) : (
+                <Empty Icon={ClipboardList} title="Seller orders aren’t connected yet" detail="Orders placed by customers will appear here once seller order access is enabled. No sample orders are shown." />
+              )}
+              {previewMode && <div className="mt-3 flex flex-col gap-3">
+                {incoming.map(order => <article key={order.id} className="rounded-2xl border border-[#F0BABA] bg-white p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold">Order #{order.id}</p><p className="mt-1 text-xs text-muted-ink">{order.customerName} · Cash on delivery · {order.placedAt}</p></div><p className="text-base font-bold">{rupee(order.itemTotal)}</p></div><OrderLines order={order} /><p className="mt-3 rounded-xl bg-[#F7F8FA] px-3 py-2 text-xs leading-5 text-muted-ink">Preview totals · seller payout {rupee(order.sellerPayout)} · delivery contribution {rupee(order.sellerDeliveryDeduction)}</p><div className="mt-3 flex gap-2"><SecondaryButton onClick={() => setPreviewOrderStatus(order.id, 'rejected')} className="h-11 text-sm text-[#B91F1F]">Decline</SecondaryButton><PrimaryButton onClick={() => setPreviewOrderStatus(order.id, 'accepted')} className="h-11 text-sm">Accept order</PrimaryButton></div></article>)}
+                {packing.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="warn">Preparing</StatusPill></div><OrderLines order={order} /><PrimaryButton onClick={() => setPreviewOrderStatus(order.id, 'ready')} className="mt-3 h-11">Mark ready for pickup</PrimaryButton></article>)}
+                {ready.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between gap-2"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="info">{order.status === 'ready' ? 'Ready for pickup' : 'Out for delivery'}</StatusPill></div>{order.status === 'ready' && order.pickupOtp && <p className="mt-2 text-sm text-muted-ink">Pickup code <strong className="tracking-widest text-ink">{order.pickupOtp}</strong></p>}</article>)}
+                {outForDelivery.map(order => <article key={order.id} className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center justify-between gap-2"><p className="text-sm font-bold">Order #{order.id}</p><StatusPill tone="info">Out for delivery</StatusPill></div><p className="mt-1 text-sm text-muted-ink">Picked up by {order.riderName || 'rider'}</p></article>)}
+                {!incoming.length && !packing.length && !ready.length && !outForDelivery.length && <Empty Icon={ClipboardList} title="No new orders" detail="New orders will appear here when they are placed." />}
+              </div>}
             </section>
-            {handedOver.length > 0 && (
-              <section aria-labelledby="done" className="mt-5">
-                <h2 id="done" className="text-sm font-bold">Handed to rider</h2>
-                <ul className="mt-2 flex flex-col gap-2">
-                  {handedOver.map(order => (
-                    <li key={order.id} className="rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span>#{order.id}</span>
-                        <StatusPill tone={order.status === 'delivered' ? 'open' : 'info'}>{order.status === 'ready' ? 'Awaiting rider' : order.status === 'picked' ? 'On the way' : 'Delivered'}</StatusPill>
-                      </div>
-                      {order.status === 'ready' && order.pickupOtp && <p className="mt-2 text-xs text-muted-ink">Give pickup code <strong className="tracking-widest text-ink">{order.pickupOtp}</strong> to the rider only when they collect the packed order.</p>}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
+
+            <section aria-labelledby="recent-activity-heading">
+              <div className="mb-3 flex items-center justify-between gap-3"><h2 id="recent-activity-heading" className="text-lg font-bold">Recent activity</h2>{previewMode && <span className="text-xs font-medium text-muted-ink">Preview</span>}</div>
+              {previewMode && shopOrders.length ? <ul className="divide-y divide-line rounded-2xl border border-line bg-white px-4">{shopOrders.slice(0, 3).map(order => <li key={order.id} className="flex items-center gap-3 py-3"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FCE8E8] text-[#B91F1F]"><Clock3 className="size-4" aria-hidden="true" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Order #{order.id} · {order.status}</p><p className="mt-0.5 text-xs text-muted-ink">{order.placedAt} · {rupee(order.itemTotal)}</p></div></li>)}</ul> : <p className="rounded-xl border border-dashed border-line bg-white px-4 py-3 text-sm text-muted-ink">{previewMode ? 'No recent activity yet.' : 'Recent activity will appear here when seller events are connected.'}</p>}
+            </section>
           </>
         )}
 
-        {tab === 'calculator' && <SmartProfitCalculator />}
-
         {tab === 'products' && (
-          <section aria-labelledby="products-heading" className="mt-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 id="products-heading" className="text-lg font-bold">Products & inventory</h2>
-                <p className="mt-1 text-xs leading-5 text-muted-ink">Customers can see in-stock items while your shop is open.</p>
-                <a href="/seller/catalog" className="mt-2 inline-flex min-h-9 items-center rounded-lg border border-line bg-white px-3 text-xs font-semibold text-brand-deep">Manage live catalog</a>
-              </div>
-              <button type="button" onClick={() => { setEditingProduct(null); setShowProductForm(true) }} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-deep">
-                <Plus className="size-4" aria-hidden="true" /> Add product
-              </button>
-            </div>
-            <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#FFF8F1] px-3 py-2.5 text-xs text-brand-deep">
-              <Eye className="size-4 shrink-0" aria-hidden="true" />
-              <span><strong>{inStockCount} visible</strong> to customers · {myProducts.length - inStockCount} out of stock</span>
-            </div>
-            <p role="status" className="mt-2 text-[11px] text-muted-ink">Preview only: product changes update the sample catalog immediately and reset when you leave.</p>
-            {showProductForm && (
-              <ProductEditor
-                key={editingProduct?.id ?? 'new-product'}
-                initial={editingProduct ?? undefined}
-                onCancel={() => { setShowProductForm(false); setEditingProduct(null) }}
-                onSave={product => {
-                  if (editingProduct) updateProduct({ ...editingProduct, ...product })
-                  else addProduct(product)
-                  setShowProductForm(false)
-                  setEditingProduct(null)
-                }}
-              />
-            )}
-            <ul className="mt-3 flex flex-col gap-2">
-              {myProducts.map(p => (
-                <li key={p.id} className="flex items-center gap-3 rounded-2xl border border-line bg-white p-3">
-                  <ProductTile category={p.category} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{p.name}</p>
-                    <p className="text-xs text-muted-ink">{categoryById[p.category].short} · {p.unit} · {rupee(p.price)}</p>
-                    <p className={cn('mt-1 text-[11px] font-semibold', p.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{p.inStock ? 'Visible in catalog' : 'Out of stock'}{p.featured ? ' · Neighborhood favorite' : ''}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <Toggle checked={p.inStock} onChange={() => toggleStock(p.id)} label={`${p.name} in stock`} />
-                    <button type="button" onClick={() => { setEditingProduct(p); setShowProductForm(true) }} aria-label={`Edit ${p.name}`} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-brand-deep hover:bg-[#FFF8F1]">
-                      <Pencil className="size-3.5" aria-hidden="true" /> Edit
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <section aria-labelledby="products-heading" className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="products-heading" className="text-xl font-bold">Products & inventory</h2><p className="mt-1 text-sm text-muted-ink">Manage the items customers can order from your shop.</p></div>{previewMode ? <button type="button" onClick={openProductForm} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Add sample product</button> : <a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white hover:bg-brand-deep"><Plus className="size-4" aria-hidden="true" /> Open catalog</a>}</div>
+            {previewMode ? <>
+              <label className="flex h-12 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><Search className="size-4 text-muted-ink" aria-hidden="true" /><span className="sr-only">Search sample products</span><input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="Search products" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-ink" /></label>
+              <div className="flex flex-wrap gap-2"><span className="rounded-full bg-[#FCE8E8] px-3 py-1.5 text-xs font-semibold text-[#B91F1F]">All products · {myProducts.length}</span><span className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted-ink">In stock · {inStockCount}</span><span className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium text-muted-ink">Unavailable · {myProducts.length - inStockCount}</span></div>
+              {showProductForm && <ProductEditor key={editingProduct?.id ?? 'new-product'} initial={editingProduct ?? undefined} onCancel={() => { setShowProductForm(false); setEditingProduct(null) }} onSave={product => { if (editingProduct) updateProduct({ ...editingProduct, ...product }); else addProduct(product); setShowProductForm(false); setEditingProduct(null) }} />}
+              {visibleProducts.length ? <ul className="grid gap-3 sm:grid-cols-2">{visibleProducts.map(product => <li key={product.id} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-white p-3.5"><ProductTile category={product.category} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><p className="mt-1 text-xs text-muted-ink">{categoryById[product.category].short} · {product.unit}</p><p className="mt-1 text-base font-bold">{rupee(product.price)}</p><p className={cn('mt-1 text-xs font-semibold', product.inStock ? 'text-[#15803D]' : 'text-muted-ink')}>{product.inStock ? 'Available' : 'Out of stock'}</p></div><div className="flex shrink-0 flex-col items-end gap-2"><Toggle checked={product.inStock} onChange={() => toggleStock(product.id)} label={`${product.name} in stock`} /><button type="button" onClick={() => { setEditingProduct(product); setShowProductForm(true) }} aria-label={`Edit ${product.name}`} className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-brand-deep hover:bg-[#FCE8E8]"><Pencil className="size-3.5" aria-hidden="true" /> Edit</button></div></li>)}</ul> : <Empty Icon={Package} title="No matching products" detail="Try another search or add a product to your catalog." />}
+              <p className="text-xs text-muted-ink">These preview listings reset when you leave. Use the catalog route to manage connected listings.</p>
+              <a href="/seller/catalog" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-line bg-white px-4 text-sm font-semibold text-ink">Manage connected catalog</a>
+            </> : <Empty Icon={Package} title="Live catalog isn’t available in this workspace" detail="No product data is shown as live. Seller catalog storage and management need to be connected before listing changes can be saved." />}
+          </section>
+        )}
+
+        {tab === 'earnings' && (
+          <section className="flex flex-col gap-4" aria-labelledby="earnings-heading">
+            <div><h2 id="earnings-heading" className="text-xl font-bold">Earnings</h2><p className="mt-1 text-sm text-muted-ink">Sales and seller payouts are shown separately.</p></div>
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4"><Stat label="Total sales" value={previewMode ? rupee(revenue) : '—'} /><Stat label="Seller earnings" value="—" /><Stat label="Platform fees" value="—" /><Stat label="Pending settlements" value="—" /></dl>
+            <div role="status" className="rounded-2xl border border-line bg-white p-4"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><Banknote className="size-5" aria-hidden="true" /></span><div><h3 className="text-sm font-bold">Settlement information unavailable</h3><p className="mt-1 text-sm leading-5 text-muted-ink">This account doesn&apos;t have verified seller settlement history yet. Sales are not profit, and no payout is marked complete.</p></div></div></div>
+            {previewMode && <div className="rounded-xl bg-[#FCE8E8] px-4 py-3 text-xs leading-5 text-[#7F1D1D]">Preview sales use example orders only. They do not represent real transactions or earnings.</div>}
+            <button type="button" onClick={() => setShowProfitCalculator(value => !value)} aria-expanded={showProfitCalculator} className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 text-sm font-semibold"><span className="flex items-center gap-2"><Calculator className="size-4 text-brand" aria-hidden="true" /> Open profit calculator</span><span className="text-xs text-muted-ink">{showProfitCalculator ? 'Hide' : 'Show'}</span></button>
+            {showProfitCalculator && <SmartProfitCalculator />}
           </section>
         )}
 
         {tab === 'account' && <PartnerAccount role="Shopkeeper" onExit={onExit} />}
-      </div>
-      <BottomNav
-        items={[
-          { key: 'orders', label: 'Orders', Icon: ClipboardList, badge: incoming.length || undefined },
-          { key: 'products', label: 'Products', Icon: Package },
-          { key: 'calculator', label: 'Profit', Icon: Calculator },
-          { key: 'account', label: 'Account', Icon: UserRound },
-        ]}
-        active={tab}
-        onSelect={setTab}
-      />
+      </main>
+      <BottomNav wide items={[{ key: 'orders', label: 'Orders', Icon: ClipboardList, badge: previewMode ? incoming.length || undefined : undefined }, { key: 'products', label: 'Products', Icon: Package }, { key: 'earnings', label: 'Earnings', Icon: Banknote }, { key: 'account', label: 'Account', Icon: UserRound }]} active={tab} onSelect={setTab} />
     </div>
   )
 }
@@ -668,74 +633,50 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
 
 function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) {
   const { profile, setProfile } = useLazyHand()
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
   const whatsappNumber = profile.whatsappNumber.replace(/\D/g, '').slice(-10)
   const validWhatsappNumber = /^[6-9]\d{9}$/.test(whatsappNumber)
+  const signOut = async () => {
+    setSigningOut(true)
+    setSignOutError('')
+    const { error } = await createClient().auth.signOut()
+    setSigningOut(false)
+    if (error) {
+      setSignOutError('We couldn’t sign you out. Please try again.')
+      return
+    }
+    onExit()
+  }
 
   return (
-    <section className="mt-4 flex flex-col gap-3">
-      <div className="rounded-2xl border border-line bg-white p-4">
-        <p className="text-xs text-muted-ink">Demo profile · not signed in</p>
-        <p className="text-sm font-semibold">{profile.name || 'Preview user'}</p>
-        <p className="text-xs text-muted-ink">
-          {role}
-          {profile.phone && ` · +91 ${profile.phone}`}
-        </p>
-        {profile.shopName && <p className="mt-2 text-xs text-muted-ink">Registered shop: {profile.shopName} ({profile.shopType}) — pending review. You&apos;re managing a sample shop until it&apos;s approved.</p>}
-        {profile.vehicle && <p className="mt-2 text-xs text-muted-ink">Vehicle: {profile.vehicle}</p>}
-      </div>
+    <section className="flex flex-col gap-4" aria-labelledby="account-heading">
+      <div><h2 id="account-heading" className="text-xl font-bold">Account & shop settings</h2><p className="mt-1 text-sm text-muted-ink">Your seller profile and shop preferences.</p></div>
+      <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="profile-heading">
+        <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><UserRound className="size-5" aria-hidden="true" /></span><div><h3 id="profile-heading" className="text-base font-bold">Seller profile</h3><p className="text-sm text-muted-ink">Account details</p></div></div>
+        <dl className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2"><div><dt className="text-xs font-medium text-muted-ink">Name</dt><dd className="mt-1 text-sm font-semibold">{profile.name || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Phone</dt><dd className="mt-1 text-sm font-semibold">{profile.phone ? `+91 ${profile.phone}` : 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop</dt><dd className="mt-1 text-sm font-semibold">{profile.shopName || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Business category</dt><dd className="mt-1 text-sm font-semibold capitalize">{profile.shopType || 'Not assigned'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop address</dt><dd className="mt-1 text-sm font-semibold">{[profile.village, profile.landmark].filter(Boolean).join(' · ') || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop hours</dt><dd className="mt-1 text-sm font-semibold">Not configured</dd></div></dl>
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2" aria-label="Shop availability and payments">
+        <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Store className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Shop availability</h3></div><p className="mt-2 text-sm font-semibold">Not connected</p><p className="mt-1 text-xs leading-5 text-muted-ink">Live open/closed controls aren&apos;t linked to a seller shop record yet.</p></div>
+        <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Banknote className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Payments & settlements</h3></div><p className="mt-2 text-sm font-semibold">No verified payout account</p><p className="mt-1 text-xs leading-5 text-muted-ink">Settlement history and bank details aren&apos;t available for this account.</p></div>
+      </section>
 
       {role === 'Shopkeeper' && (
-        <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="whatsapp-alerts-heading">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#E8F7ED] text-[#16803C]">
-              <MessageCircle className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 id="whatsapp-alerts-heading" className="text-sm font-bold">WhatsApp order alerts</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-ink">Set the shop&apos;s WhatsApp number. Alerts stay off until a VPS connection is available.</p>
-            </div>
-          </div>
-
-          <label htmlFor="seller-whatsapp" className="mt-4 block text-xs font-semibold">Shop WhatsApp number</label>
-          <div className="mt-1.5 flex h-11 items-center rounded-xl border border-line bg-white focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15">
-            <span className="border-r border-line px-3 text-sm text-muted-ink">+91</span>
-            <input
-              id="seller-whatsapp"
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              maxLength={10}
-              value={whatsappNumber}
-              onChange={event => setProfile({ ...profile, whatsappNumber: event.target.value.replace(/\D/g, '').slice(0, 10) })}
-              placeholder="98765 43210"
-              aria-describedby="seller-whatsapp-help"
-              aria-invalid={Boolean(whatsappNumber) && !validWhatsappNumber}
-              className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none"
-            />
-          </div>
-          <p id="seller-whatsapp-help" className="mt-1.5 text-[11px] leading-4 text-muted-ink">Use a WhatsApp number with a valid 10-digit Indian mobile number.</p>
-          {Boolean(whatsappNumber) && !validWhatsappNumber && <p role="alert" className="mt-1 text-xs text-[#B91C1C]">Enter a valid 10-digit mobile number starting with 6–9.</p>}
-
-          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-[#F7F8F6] px-3">
-            <input
-              type="checkbox"
-              checked={profile.whatsappAlertsEnabled}
-              disabled={!validWhatsappNumber}
-              onChange={event => setProfile({ ...profile, whatsappAlertsEnabled: event.target.checked })}
-              className="size-4 accent-[#16803C]"
-              aria-describedby="seller-alerts-status"
-            />
-            <span className="text-xs"><strong>Order notifications</strong><span className="mt-0.5 block text-[11px] text-muted-ink">{profile.whatsappAlertsEnabled && validWhatsappNumber ? 'Enabled in this preview' : 'Off'}</span></span>
-          </label>
-
-          <div id="seller-alerts-status" className="mt-3 rounded-xl border border-dashed border-line bg-[#FAF9F6] p-3" role="status" aria-live="polite">
-            <p className="text-xs font-semibold">{validWhatsappNumber ? 'Manual mode · ready for VPS pairing' : 'Add a number to get started'}</p>
-            <p className="mt-1 text-[11px] leading-4 text-muted-ink">{validWhatsappNumber ? 'This preview does not send WhatsApp messages or show a scannable pairing QR. Until your VPS bridge is connected, use the Orders tab to check new orders manually.' : 'A pairing QR will be shown once a WhatsApp bridge is connected. No QR or messages are simulated here.'}</p>
-          </div>
+        <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="whatsapp-alerts-heading">
+          <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#F7F8FA] text-brand-deep"><MessageCircle className="size-5" aria-hidden="true" /></span><div className="min-w-0 flex-1"><h3 id="whatsapp-alerts-heading" className="text-base font-bold">WhatsApp order alerts</h3><p className="mt-1 text-sm leading-5 text-muted-ink">Save a contact preference for when seller alerts are available.</p></div></div>
+          <label htmlFor="seller-whatsapp" className="mt-4 block text-sm font-semibold">Shop WhatsApp number</label>
+          <div className="mt-1.5 flex h-12 items-center rounded-xl border border-line bg-white focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15"><span className="border-r border-line px-3 text-sm text-muted-ink">+91</span><input id="seller-whatsapp" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} value={whatsappNumber} onChange={event => setProfile({ ...profile, whatsappNumber: event.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="98765 43210" aria-describedby="seller-whatsapp-help" aria-invalid={Boolean(whatsappNumber) && !validWhatsappNumber} className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none" /></div>
+          <p id="seller-whatsapp-help" className="mt-1.5 text-xs leading-5 text-muted-ink">Use a valid 10-digit Indian mobile number starting with 6–9.</p>
+          {Boolean(whatsappNumber) && !validWhatsappNumber && <p role="alert" className="mt-1 text-sm text-[#B91F1F]">Enter a valid 10-digit mobile number starting with 6–9.</p>}
+          <label className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-[#F7F8FA] px-3"><input type="checkbox" checked={profile.whatsappAlertsEnabled} disabled={!validWhatsappNumber} onChange={event => setProfile({ ...profile, whatsappAlertsEnabled: event.target.checked })} className="size-4 accent-[#D62828]" aria-describedby="seller-alerts-status" /><span className="text-sm"><strong>Order notifications preference</strong><span className="mt-0.5 block text-xs text-muted-ink">{profile.whatsappAlertsEnabled && validWhatsappNumber ? 'Preference saved' : 'Off'}</span></span></label>
+          <p id="seller-alerts-status" role="status" className="mt-3 rounded-xl border border-dashed border-line bg-[#F7F8FA] p-3 text-xs leading-5 text-muted-ink">WhatsApp delivery is unavailable until the messaging connection is enabled. No alerts are sent by this setting today.</p>
         </section>
       )}
 
-      <SecondaryButton onClick={onExit}>Switch to customer app</SecondaryButton>
+      <SecondaryButton onClick={onExit} className="h-12">Return to customer app</SecondaryButton>
+      <button type="button" onClick={() => void signOut()} disabled={signingOut} className="min-h-11 rounded-xl border border-line bg-white px-4 text-sm font-semibold text-[#B91F1F] disabled:opacity-60">{signingOut ? 'Signing out…' : 'Sign out'}</button>
+      {signOutError && <p role="alert" className="text-sm text-[#B91F1F]">{signOutError}</p>}
     </section>
   )
 }

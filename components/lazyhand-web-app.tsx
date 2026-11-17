@@ -346,7 +346,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     setStage('welcome')
   }
 
-  if (activeRole === 'shopkeeper') return <ShopkeeperDashboard onExit={() => enterApp('customer')} />
+  if (activeRole === 'shopkeeper') return <ShopkeeperDashboard onExit={() => enterApp('customer')} previewMode={previewMode} />
   if (activeRole === 'rider') return <RiderDashboard onExit={() => enterApp('customer')} />
 
   const editAddress = () => {

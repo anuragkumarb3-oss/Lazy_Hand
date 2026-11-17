@@ -181,7 +181,7 @@ export function StatusPill({ tone, children }: { tone: 'open' | 'closed' | 'info
   const tones = {
     open: 'bg-[#DCFCE7] text-[#15803D]',
     closed: 'bg-[#FEE2E2] text-[#B91C1C]',
-    info: 'bg-[#FFF0E2] text-brand-deep',
+    info: 'bg-[#FCE8E8] text-brand-deep',
     warn: 'bg-[#FEF3C7] text-[#92400E]',
   }
   return <span className={cn('inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', tones[tone])}>{children}</span>
@@ -189,10 +189,10 @@ export function StatusPill({ tone, children }: { tone: 'open' | 'closed' | 'info
 
 export type NavItem<T extends string> = { key: T; label: string; Icon: LucideIcon; badge?: number }
 
-export function BottomNav<T extends string>({ items, active, onSelect }: { items: NavItem<T>[]; active: T; onSelect: (key: T) => void }) {
+export function BottomNav<T extends string>({ items, active, onSelect, wide = false }: { items: NavItem<T>[]; active: T; onSelect: (key: T) => void; wide?: boolean }) {
   return (
     <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-white/95 pb-[max(env(safe-area-inset-bottom),6px)] backdrop-blur">
-      <ul className="mx-auto flex max-w-md items-stretch justify-around">
+      <ul className={cn('mx-auto flex w-full items-stretch justify-around px-2', wide ? 'max-w-5xl' : 'max-w-md')}>
         {items.map(({ key, label, Icon, badge }) => {
           const isActive = key === active
           return (
@@ -201,7 +201,7 @@ export function BottomNav<T extends string>({ items, active, onSelect }: { items
                 type="button"
                 onClick={() => onSelect(key)}
                 aria-current={isActive ? 'page' : undefined}
-                className={cn('relative flex w-full flex-col items-center gap-1 py-2.5 text-[11px] font-medium', isActive ? 'text-brand' : 'text-muted-ink')}
+                className={cn('relative flex min-h-12 w-full flex-col items-center justify-center gap-1 py-2 text-xs font-medium', isActive ? 'text-brand after:absolute after:top-0 after:h-0.5 after:w-8 after:rounded-full after:bg-brand' : 'text-muted-ink')}
               >
                 <Icon className="size-5" strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
                 {label}
