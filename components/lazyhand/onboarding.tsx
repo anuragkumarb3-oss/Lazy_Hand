@@ -415,11 +415,11 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
           </p>
         </div>
 
-        <PolicyDraftDisclosure role={form.role} />
         <label className="flex items-start gap-3 rounded-xl border border-line bg-white p-3 text-xs leading-5 text-muted-ink">
           <input type="checkbox" checked={acceptedPolicies} onChange={event => { setAcceptedPolicies(event.target.checked); if (event.target.checked) setSubmitError('') }} className="mt-0.5 size-4 shrink-0 accent-brand" />
           <span>I agree to the LazyHand policies that apply to my account.</span>
         </label>
+        <PolicyDraftDisclosure role={form.role} />
         {submitError && <p role="alert" className="text-xs text-[#B91C1C]">{submitError}</p>}
         <PrimaryButton type="submit" disabled={isSubmitting} className="mt-2">{isSubmitting ? 'Sending code…' : 'Send verification code'}</PrimaryButton>
         <p className="text-center text-xs leading-5 text-muted-ink">

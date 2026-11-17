@@ -47,7 +47,6 @@ export function PolicyDraftDisclosure({ role }: { role: Role }) {
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold text-ink [&::-webkit-details-marker]:hidden">
         <span>Terms, privacy &amp; account policies</span>
         <span className="flex shrink-0 items-center gap-2">
-          <span className="rounded-full bg-[#FFF4E8] px-2 py-1 text-[10px] font-medium text-[#7C4A2D]">India draft</span>
           <ChevronDown aria-hidden="true" className="size-4 text-muted-ink transition-transform group-open:rotate-180" />
         </span>
       </summary>
