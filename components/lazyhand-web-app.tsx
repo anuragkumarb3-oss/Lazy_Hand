@@ -385,7 +385,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
         onChangeLocation={() => setStage('location')}
       />
     )
-  else if (tab === 'categories') body = <CategoriesScreen />
+  else if (tab === 'categories') body = <CategoriesScreen area={area} />
   else if (tab === 'orders') body = <OrderAgainScreen onTrack={id => go({ kind: 'track', orderId: id })} onReordered={() => go({ kind: 'cart' })} />
   else
     body = (

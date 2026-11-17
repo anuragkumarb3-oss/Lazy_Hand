@@ -96,10 +96,15 @@ type DynamicCategory = { id: string; name: string; scope: 'general' | 'restauran
 type HomeSection = 'All' | 'Grocery & Kitchen' | 'Snacks & Drinks' | 'Fresh' | 'Daily essentials'
 type CatalogResponse = { categories: BrowserCategory[]; products: BrowserProduct[] }
 
-async function fetchCatalog(): Promise<CatalogResponse> {
-  const response = await fetch('/api/catalog', { cache: 'no-store' })
+async function fetchCatalog(url = '/api/catalog'): Promise<CatalogResponse> {
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) throw new Error('Catalog could not be loaded.')
   return response.json() as Promise<CatalogResponse>
+}
+
+function catalogUrlForArea(area: string) {
+  const locality = area === 'Set your location' ? '' : area.split(',')[0].trim()
+  return `/api/catalog?area=${encodeURIComponent(locality)}`
 }
 
 const homeSections: { name: HomeSection; categories: string[]; Icon: typeof Store }[] = [
@@ -118,7 +123,7 @@ function categoryIdForName(name: string) {
   })?.id
 }
 
-function MoreProducts({ products, loading }: { products: Product[]; loading: boolean }) {
+function MoreProducts({ products, loading, area, onChangeLocation }: { products: Product[]; loading: boolean; area: string; onChangeLocation: () => void }) {
   const { cart, addItem, shopById } = useLazyHand()
   const featuredProducts = [...products]
     .filter(product => product.inStock && shopById[product.shopId])
@@ -152,14 +157,14 @@ function MoreProducts({ products, loading }: { products: Product[]; loading: boo
             </div>
           </div>
         </li>
-      })}</ul> : <p role={loading ? 'status' : undefined} className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">{loading ? 'Loading products…' : 'Available seller products will appear here.'}</p>}
+      })}</ul> : loading ? <p role="status" className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">Loading products…</p> : <div className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center"><p className="text-sm text-muted-ink">No in-stock products were found near {area}.</p><button type="button" onClick={onChangeLocation} className="mt-3 min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-brand-deep">Change delivery location</button></div>}
     </section>
   )
 }
 
 export function CustomerHome({ area, onChangeLocation }: { area: string; onChangeLocation: () => void }) {
   const { shops, products, setCatalogData } = useLazyHand()
-  const { data: catalog, error: catalogError } = useSWR('/api/catalog', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
+  const { data: catalog, error: catalogError } = useSWR(catalogUrlForArea(area), fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
   useEffect(() => {
     if (!catalog && !catalogError) return
     if (!catalog) {
@@ -310,7 +315,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
 
             {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
 
-            <MoreProducts products={catalog ? products : []} loading={!catalog && !catalogError} />
+            <MoreProducts products={catalog ? products : []} loading={!catalog && !catalogError} area={area} onChangeLocation={onChangeLocation} />
             <section aria-label="More ways to shop" className="mt-6 grid grid-cols-2 gap-3"><a href="/restaurants" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><ShoppingBag className="size-4 text-brand-deep" aria-hidden="true" />Restaurants</a><a href="/categories" className="flex min-h-16 items-center justify-center gap-2 rounded-2xl border border-line bg-white px-3 text-sm font-semibold"><Store className="size-4 text-brand-deep" aria-hidden="true" />Browse stores</a></section>
           </>
         )}
@@ -335,8 +340,8 @@ function CategoryIcon({ category, restaurant }: { category: BrowserCategory; res
   return <Icon className="size-5" aria-hidden="true" />
 }
 
-export function CategoriesScreen() {
-  const { data: catalog, error: catalogError, isLoading } = useSWR('/api/catalog', fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
+export function CategoriesScreen({ area }: { area: string }) {
+  const { data: catalog, error: catalogError, isLoading } = useSWR(catalogUrlForArea(area), fetchCatalog, { refreshInterval: 30_000, revalidateOnFocus: true })
   const categories = catalog?.categories ?? []
   const products = catalog?.products ?? []
   const categoryError = catalogError
@@ -368,7 +373,7 @@ export function CategoriesScreen() {
     <main className="flex h-[calc(100svh-70px)] min-h-[540px] flex-col bg-[#FAFAFA] pb-[max(env(safe-area-inset-bottom),8px)] text-ink">
       <header className="shrink-0 border-b border-line bg-white px-4 pb-3 pt-[max(env(safe-area-inset-top),16px)]">
         <h1 className="text-xl font-extrabold tracking-tight">Explore</h1>
-        <p className="mt-1 text-xs text-muted-ink">Browse local shops and restaurant menus.</p>
+        <p className="mt-1 text-xs text-muted-ink">Browse in-stock shops and restaurant menus near {area}.</p>
         <div className="mt-3 grid h-11 grid-cols-2 rounded-full bg-[#F1F1F1] p-1" role="tablist" aria-label="Shopping destination">
           {(['general', 'restaurant'] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={scope === value} onClick={() => setScope(value)} className={cn('rounded-full px-3 text-sm font-semibold transition-colors duration-200', scope === value ? 'bg-brand text-white shadow-sm' : 'text-[#4B5563] hover:text-[#1F2937]')}>{value === 'general' ? 'Stores' : 'Restaurants'}</button>)}
         </div>
@@ -404,7 +409,7 @@ export function CategoriesScreen() {
                   {item.shop_open && <p className="mt-1 text-[10px] text-muted-ink">Delivery: {item.delivery_estimate_min && item.delivery_estimate_max ? `${item.delivery_estimate_min}–${item.delivery_estimate_max} min` : item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable'}</p>}
                 </div>
               </li>
-            })}</ul> : <div className="rounded-xl border border-dashed border-line bg-white p-4 text-center"><p className="text-xs font-semibold">No items in this category yet</p><p className="mt-1 text-[10px] leading-4 text-muted-ink">Available listings will appear here when a seller adds them.</p></div>}
+            })}</ul> : <div className="rounded-xl border border-dashed border-line bg-white p-4 text-center"><p className="text-xs font-semibold">No available items near {area}</p><p className="mt-1 text-[10px] leading-4 text-muted-ink">Try another delivery location or check back later.</p></div>}
           </section>
         </div>
       )}
