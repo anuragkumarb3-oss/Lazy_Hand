@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
+import { LEGAL_POLICY_VERSION, policiesForRole } from '@/lib/legal-policies'
 
 export const dynamic = 'force-dynamic'
-const policyVersion = '2026-11-17-india-draft-1'
-const allowedPolicies = new Set(['terms', 'privacy', 'seller_terms', 'refunds', 'rider_terms', 'safety'])
 const allowedRoles = new Set(['customer', 'shopkeeper', 'rider'])
 
 export async function POST(request: Request) {
@@ -22,8 +21,14 @@ export async function POST(request: Request) {
 
   let body: { role?: unknown; policyKeys?: unknown }
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid onboarding details.' }, { status: 400 }) }
-  if (typeof body.role !== 'string' || !allowedRoles.has(body.role) || !Array.isArray(body.policyKeys) || body.policyKeys.length > 6 || body.policyKeys.some(key => typeof key !== 'string' || !allowedPolicies.has(key))) {
+  if (typeof body.role !== 'string' || !allowedRoles.has(body.role) || !Array.isArray(body.policyKeys) || body.policyKeys.length > 4 || body.policyKeys.some(key => typeof key !== 'string')) {
     return NextResponse.json({ error: 'Invalid onboarding details.' }, { status: 400 })
+  }
+  const role = body.role as 'customer' | 'shopkeeper' | 'rider'
+  const submittedPolicies = new Set(body.policyKeys as string[])
+  const requiredPolicies = policiesForRole(role)
+  if (submittedPolicies.size !== requiredPolicies.length || requiredPolicies.some(key => !submittedPolicies.has(key))) {
+    return NextResponse.json({ error: 'Please agree to the account policies to continue.' }, { status: 400 })
   }
 
   const client = await pool.connect()
@@ -38,11 +43,11 @@ export async function POST(request: Request) {
       await client.query(
         `INSERT INTO legal_policy_acceptances(user_id, role, policy_key, policy_version)
          VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, role, policy_key, policy_version) DO NOTHING`,
-        [user.id, body.role, policyKey, policyVersion],
+        [user.id, role, policyKey, LEGAL_POLICY_VERSION],
       )
     }
     let sellerRequestSubmitted = false
-    if (body.role === 'shopkeeper') {
+    if (role === 'shopkeeper') {
       const result = await client.query(
         `INSERT INTO seller_applications(user_id) VALUES ($1)
          ON CONFLICT (user_id) DO NOTHING`, [user.id],

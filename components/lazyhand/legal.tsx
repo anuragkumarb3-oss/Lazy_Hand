@@ -1,14 +1,10 @@
 'use client'
 
+import { ChevronDown } from 'lucide-react'
 import type { Role } from './data'
+import { LEGAL_POLICY_VERSION, policiesForRole } from '@/lib/legal-policies'
 
-export const LEGAL_POLICY_VERSION = '2026-11-17-india-draft-1'
-
-export function policiesForRole(role: Role) {
-  if (role === 'shopkeeper') return ['terms', 'privacy', 'seller_terms', 'refunds']
-  if (role === 'rider') return ['terms', 'privacy', 'rider_terms', 'safety']
-  return ['terms', 'privacy', 'refunds']
-}
+export { policiesForRole }
 
 const generalDrafts = [
   {
@@ -47,10 +43,16 @@ export function PolicyDraftDisclosure({ role }: { role: Role }) {
   const drafts = role === 'shopkeeper' ? [...generalDrafts.slice(0, 2), ...sellerDrafts, generalDrafts[2]] : role === 'rider' ? [...generalDrafts.slice(0, 2), ...riderDrafts, generalDrafts[2]] : generalDrafts
 
   return (
-    <details className="rounded-xl border border-line bg-white p-3 text-sm">
-      <summary className="cursor-pointer font-semibold text-ink">Review India policy drafts <span className="ml-1 text-xs font-normal text-muted-ink">Version {LEGAL_POLICY_VERSION}</span></summary>
-      <div className="mt-3 flex flex-col gap-3">
-        <p className="rounded-lg bg-[#FFF7ED] p-3 text-xs leading-5 text-[#7C2D12]">Draft for product review only—not legal advice. Have Indian counsel review and approve these policies, operational claims and contact details before launch. Update the version whenever the text changes.</p>
+    <details className="group rounded-xl border border-line bg-white p-3 text-sm">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold text-ink [&::-webkit-details-marker]:hidden">
+        <span>Terms, privacy &amp; account policies</span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-[#FFF4E8] px-2 py-1 text-[10px] font-medium text-[#7C4A2D]">India draft</span>
+          <ChevronDown aria-hidden="true" className="size-4 text-muted-ink transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+        <p className="text-[11px] leading-5 text-muted-ink">Version {LEGAL_POLICY_VERSION}. These India-focused drafts need local legal review before launch.</p>
         {drafts.map(draft => <section key={draft.title}><h3 className="text-xs font-bold">{draft.title}</h3><p className="mt-1 text-xs leading-5 text-muted-ink">{draft.body}</p></section>)}
       </div>
     </details>

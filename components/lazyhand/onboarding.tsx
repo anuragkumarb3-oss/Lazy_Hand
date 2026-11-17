@@ -376,7 +376,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
       return
     }
     if (!acceptedPolicies) {
-      setSubmitError('Review the policy drafts and confirm that you agree before continuing.')
+      setSubmitError('Please agree to the account policies to continue.')
       return
     }
     setSubmitError('')
@@ -418,7 +418,7 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
         <PolicyDraftDisclosure role={form.role} />
         <label className="flex items-start gap-3 rounded-xl border border-line bg-white p-3 text-xs leading-5 text-muted-ink">
           <input type="checkbox" checked={acceptedPolicies} onChange={event => { setAcceptedPolicies(event.target.checked); if (event.target.checked) setSubmitError('') }} className="mt-0.5 size-4 shrink-0 accent-brand" />
-          <span>I have reviewed and agree to the applicable LazyHand policies for this account. I understand these are India-jurisdiction drafts awaiting review by Indian counsel before launch.</span>
+          <span>I agree to the LazyHand policies that apply to my account.</span>
         </label>
         {submitError && <p role="alert" className="text-xs text-[#B91C1C]">{submitError}</p>}
         <PrimaryButton type="submit" disabled={isSubmitting} className="mt-2">{isSubmitting ? 'Sending code…' : 'Send verification code'}</PrimaryButton>
