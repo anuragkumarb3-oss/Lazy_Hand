@@ -467,14 +467,15 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
       </header>
       <ul className="mx-auto flex max-w-md flex-col gap-3 px-4 pt-4">
         {orders.map(order => {
-          const shop = shopById[order.shopId]
+          const shop = shopById?.[order.shopId]
+          const shopName = shop && typeof shop.name === 'string' ? shop.name : 'Shop no longer available'
           const active = !['delivered', 'rejected'].includes(order.status)
           const count = order.lines.reduce((s, l) => s + l.qty, 0)
           return (
             <li key={order.id} className="rounded-2xl border border-line bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{shop?.name ?? 'Shop no longer available'}</p>
+                  <p className="truncate text-sm font-semibold">{shopName}</p>
                   <p className="text-xs text-muted-ink">
                     {order.placedAt} · {count} items · {rupee(order.total)}
                   </p>
