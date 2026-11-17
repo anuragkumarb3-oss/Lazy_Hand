@@ -467,13 +467,14 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
       </header>
       <ul className="mx-auto flex max-w-md flex-col gap-3 px-4 pt-4">
         {orders.map(order => {
+          const shop = shopById[order.shopId]
           const active = !['delivered', 'rejected'].includes(order.status)
           const count = order.lines.reduce((s, l) => s + l.qty, 0)
           return (
             <li key={order.id} className="rounded-2xl border border-line bg-white p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{shopById[order.shopId].name}</p>
+                  <p className="truncate text-sm font-semibold">{shop?.name ?? 'Shop no longer available'}</p>
                   <p className="text-xs text-muted-ink">
                     {order.placedAt} · {count} items · {rupee(order.total)}
                   </p>
@@ -493,7 +494,7 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
                   <PrimaryButton onClick={() => onTrack(order.id)} className="h-10 text-xs">
                     <Package className="size-4" aria-hidden="true" /> Track order
                   </PrimaryButton>
-                ) : (
+                ) : shop ? (
                   <PrimaryButton
                     onClick={() => {
                       reorder(order)
@@ -503,6 +504,8 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
                   >
                     <RefreshCw className="size-4" aria-hidden="true" /> Reorder
                   </PrimaryButton>
+                ) : (
+                  <p className="self-center text-xs text-muted-ink">This shop is no longer available</p>
                 )}
                 <SecondaryButton onClick={() => setOpenBill(openBill === order.id ? null : order.id)} aria-expanded={openBill === order.id} className="h-10 text-xs">
                   <Receipt className="size-4" aria-hidden="true" /> {openBill === order.id ? 'Hide bill' : 'View bill'}
