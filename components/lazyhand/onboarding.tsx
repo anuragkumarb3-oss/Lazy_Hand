@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Role } from './data'
+import { PolicyDraftDisclosure, policiesForRole } from './legal'
 import { BackButton, Field, Logo, PrimaryButton, Screen, SecondaryButton } from './ui'
 
 export type LocationState = {
@@ -59,7 +60,7 @@ export function WelcomeScreen({ onStart, onLogin, onShopkeeperUnlock }: { onStar
   }
 
   return (
-    <main className="min-h-svh bg-gradient-to-b from-[#F76B1C] via-[#FA8A2E] to-[#FFB24A] text-white">
+    <main className="min-h-svh bg-gradient-to-b from-[#B91F1F] via-[#D62828] to-[#EF4444] text-white">
       <div className="mx-auto flex min-h-svh w-full max-w-md flex-col px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-[max(env(safe-area-inset-top),24px)]">
         <section className="flex flex-1 flex-col items-center justify-center text-center">
           <button
@@ -346,9 +347,10 @@ export function OtpScreen({ phone, onVerified, onBack }: { phone: string; onVeri
 
 type SignupErrors = Partial<Record<keyof Profile, string>>
 
-export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: Profile; onCreate: (profile: Profile) => Promise<void>; onLogin: () => void; onBack: () => void }) {
+export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: Profile; onCreate: (profile: Profile, policyKeys: string[]) => Promise<void>; onLogin: () => void; onBack: () => void }) {
   const [form, setForm] = useState(initial)
   const [errors, setErrors] = useState<SignupErrors>({})
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -373,10 +375,14 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
       target?.focus()
       return
     }
+    if (!acceptedPolicies) {
+      setSubmitError('Review the policy drafts and confirm that you agree before continuing.')
+      return
+    }
     setSubmitError('')
     setIsSubmitting(true)
     try {
-      await onCreate({ ...form, phone: form.phone.replace(/\D/g, '').slice(0, 10), name: form.name.trim() })
+      await onCreate({ ...form, phone: form.phone.replace(/\D/g, '').slice(0, 10), name: form.name.trim() }, policiesForRole(form.role))
     } catch (cause) {
       setSubmitError(cause instanceof Error ? cause.message : 'We could not send a code. Please try again.')
     } finally {
@@ -409,6 +415,11 @@ export function SignupScreen({ initial, onCreate, onLogin, onBack }: { initial: 
           </p>
         </div>
 
+        <PolicyDraftDisclosure role={form.role} />
+        <label className="flex items-start gap-3 rounded-xl border border-line bg-white p-3 text-xs leading-5 text-muted-ink">
+          <input type="checkbox" checked={acceptedPolicies} onChange={event => { setAcceptedPolicies(event.target.checked); if (event.target.checked) setSubmitError('') }} className="mt-0.5 size-4 shrink-0 accent-brand" />
+          <span>I have reviewed and agree to the applicable LazyHand policies for this account. I understand these are India-jurisdiction drafts awaiting review by Indian counsel before launch.</span>
+        </label>
         {submitError && <p role="alert" className="text-xs text-[#B91C1C]">{submitError}</p>}
         <PrimaryButton type="submit" disabled={isSubmitting} className="mt-2">{isSubmitting ? 'Sending code…' : 'Send verification code'}</PrimaryButton>
         <p className="text-center text-xs leading-5 text-muted-ink">

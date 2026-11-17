@@ -42,7 +42,7 @@ export function LoadingScreen({ title = 'Getting your LazyHand ready', detail = 
   return (
     <main className="flex min-h-svh items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_38%,#FFF0E2_0%,#FAF7F2_52%,#F5EEE5_100%)] px-6 text-ink" role="status" aria-live="polite" aria-label={title}>
       <div className="w-full max-w-xs text-center">
-        <div className="relative mx-auto grid size-32 place-items-center rounded-[2rem] bg-white shadow-[0_20px_60px_-28px_#C2410C66]">
+        <div className="relative mx-auto grid size-32 place-items-center rounded-[2rem] bg-white shadow-[0_20px_60px_-28px_#B91F1F44]">
           <span className="absolute inset-3 rounded-[1.5rem] border border-brand/10" />
           <span className="absolute size-[5.5rem] rounded-full border border-dashed border-brand/30 motion-safe:animate-[lh-orbit_8s_linear_infinite]" />
           <span className="absolute size-2 rounded-full bg-[#FCA5A5] shadow-[0_0_16px_#DC2626] motion-safe:animate-[lh-loading-pulse_1.4s_ease-in-out_infinite]" />
@@ -80,7 +80,7 @@ export function PrimaryButton({ className, children, ...props }: ComponentProps<
       type="button"
       {...props}
       className={cn(
-        'flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-[0_8px_20px_-12px_#C2410C] transition hover:bg-brand-deep active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#F6B98F] disabled:shadow-none',
+        'flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-[0_8px_20px_-12px_#B91F1F] transition hover:bg-brand-deep active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[#FECACA] disabled:shadow-none',
         className,
       )}
     >

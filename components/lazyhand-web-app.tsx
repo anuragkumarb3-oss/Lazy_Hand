@@ -19,6 +19,7 @@ import {
 import { CartBar, CategoriesScreen, ConflictSheet, CustomerHome, StoreScreen } from './lazyhand/customer-shop'
 import { CartScreen, OrderAgainScreen, PaymentScreen, ProfileScreen, TrackingScreen } from './lazyhand/customer-order'
 import { RiderDashboard, ShopkeeperDashboard } from './lazyhand/partners'
+import { LEGAL_POLICY_VERSION } from './lazyhand/legal'
 import { emptyProfile, LazyHandProvider, useLazyHand } from './lazyhand/store'
 import { BottomNav, LoadingScreen } from './lazyhand/ui'
 
@@ -114,6 +115,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const [loginPhone, setLoginPhone] = useState('')
   const [afterOtp, setAfterOtp] = useState<Role>('customer')
   const [pendingProfile, setPendingProfile] = useState<Profile | null>(null)
+  const [pendingPolicyKeys, setPendingPolicyKeys] = useState<string[]>([])
   const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
   const [authenticatedPhone, setAuthenticatedPhone] = useState('')
   const profileKey = authenticatedUserId ? ['lazyhand-profile', authenticatedUserId] as const : null
@@ -196,11 +198,12 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     }
     setLoginPhone(phone)
     setPendingProfile(null)
+    setPendingPolicyKeys([])
     setAfterOtp('customer')
     setStage('otp')
   }
 
-  const sendSignupCode = async (newProfile: Profile) => {
+  const sendSignupCode = async (newProfile: Profile, policyKeys: string[]) => {
     const { error } = await createSupabaseClient().auth.signInWithOtp({
       phone: `+91${newProfile.phone}`,
       options: { shouldCreateUser: true, data: { name: newProfile.name } },
@@ -213,6 +216,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
       throw new Error(friendlyAuthError(error.message, 'send'))
     }
     setPendingProfile(newProfile)
+    setPendingPolicyKeys(policyKeys)
     setLoginPhone(newProfile.phone)
     setAfterOtp(newProfile.role)
     setStage('otp')
@@ -249,6 +253,14 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
         throw new Error('Your account was verified, but we could not save your profile. Please try again.')
       }
     }
+    if (pendingPolicyKeys.length) {
+      const acceptedRole = pendingProfile?.role ?? verifiedProfile.role
+      const { error: acceptanceError } = await supabase.from('legal_policy_acceptances').upsert(
+        pendingPolicyKeys.map(policy_key => ({ user_id: data.user.id, role: acceptedRole, policy_key, policy_version: LEGAL_POLICY_VERSION })),
+        { onConflict: 'user_id,role,policy_key,policy_version', ignoreDuplicates: true },
+      )
+      if (acceptanceError) throw new Error('Your account is ready, but we could not record policy acceptance. Please verify your account again.')
+    }
     if (requestedSellerAccess && verifiedProfile.role !== 'shopkeeper') {
       const { error: applicationError } = await supabase.from('seller_applications').insert({ user_id: data.user.id })
       if (applicationError && applicationError.code !== '23505') {
@@ -262,6 +274,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     setProfile(verifiedProfile)
     setActiveRole(verifiedProfile.role)
     setPendingProfile(null)
+    setPendingPolicyKeys([])
     setSessionReady(true)
     enterApp(verifiedProfile.role)
   }

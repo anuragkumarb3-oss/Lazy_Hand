@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import useSWR from 'swr'
 import { Banknote, Bike, Calculator, Check, ClipboardList, Clock3, Eye, IndianRupee, MapPin, MessageCircle, Package, Pencil, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -9,6 +10,9 @@ import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, ProductTile, SecondaryButton, StatusPill, Toggle } from './ui'
 
 const MANAGED_SHOP_ID = 'gupta'
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+type ShopHour = { day_of_week: number; opens_at: string | null; closes_at: string | null; is_closed: boolean }
+type ShopHourDraft = ShopHour
 
 function PartnerHeader({ eyebrow, title, right }: { eyebrow: string; title: string; right?: React.ReactNode }) {
   return (
@@ -631,6 +635,100 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
   )
 }
 
+function makeClosedWeek(): ShopHourDraft[] {
+  return WEEKDAYS.map((_, day_of_week) => ({ day_of_week, opens_at: null, closes_at: null, is_closed: true }))
+}
+
+function ShopHoursSettings() {
+  const { data: savedHours, error: loadError, isLoading, mutate } = useSWR('seller-shop-hours', async () => {
+    const supabase = createClient()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) throw userError
+    if (!user) throw new Error('Sign in again to load shop hours.')
+    const { data, error } = await supabase.from('shop_operating_hours').select('day_of_week,opens_at,closes_at,is_closed').eq('user_id', user.id).order('day_of_week')
+    if (error) throw error
+    return data as ShopHour[]
+  })
+  const [draft, setDraft] = useState<ShopHourDraft[]>(makeClosedWeek)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!savedHours) return
+    const byDay = new Map(savedHours.map(hours => [hours.day_of_week, hours]))
+    setDraft(WEEKDAYS.map((_, day_of_week) => byDay.get(day_of_week) ?? { day_of_week, opens_at: null, closes_at: null, is_closed: true }))
+  }, [savedHours])
+
+  const updateDay = (day: number, patch: Partial<ShopHourDraft>) => {
+    setDraft(current => current.map(hours => hours.day_of_week === day ? { ...hours, ...patch } : hours))
+  }
+
+  const saveHours = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true); setFailure(''); setMessage('')
+    const supabase = createClient()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      setSaving(false)
+      setFailure('Sign in again before saving your shop hours.')
+      return
+    }
+    const invalidDay = draft.find(hours => !hours.is_closed && (!hours.opens_at || !hours.closes_at || hours.opens_at === hours.closes_at))
+    if (invalidDay) {
+      setSaving(false)
+      setFailure(`Add different opening and closing times for ${WEEKDAYS[invalidDay.day_of_week]}.`)
+      return
+    }
+    const rows = draft.map(hours => ({
+      ...hours,
+      user_id: user.id,
+      opens_at: hours.is_closed ? null : hours.opens_at,
+      closes_at: hours.is_closed ? null : hours.closes_at,
+      updated_at: new Date().toISOString(),
+    }))
+    const { error } = await supabase.from('shop_operating_hours').upsert(rows, { onConflict: 'user_id,day_of_week' })
+    setSaving(false)
+    if (error) {
+      setFailure('Shop hours could not be saved. Confirm your seller account is approved, then try again.')
+      return
+    }
+    setMessage('Weekly hours saved.')
+    setEditing(false)
+    await mutate()
+  }
+
+  const configured = Boolean(savedHours?.length)
+
+  return (
+    <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="shop-hours-heading">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h3 id="shop-hours-heading" className="text-base font-bold">Weekly shop hours</h3><p className="mt-1 text-xs leading-5 text-muted-ink">Local shop time · India Standard Time (Asia/Kolkata)</p></div>
+        {!editing && <button type="button" onClick={() => setEditing(true)} className="min-h-10 rounded-xl border border-line px-3 text-sm font-semibold">{configured ? 'Edit hours' : 'Set hours'}</button>}
+      </div>
+      {loadError && <p role="alert" className="mt-3 text-sm text-red-700">Shop hours could not be loaded. Refresh and try again.</p>}
+      {isLoading ? <p className="mt-3 text-sm text-muted-ink">Loading shop hours…</p> : !editing ? (
+        configured ? <ul className="mt-4 grid gap-2 sm:grid-cols-2">{WEEKDAYS.map((day, index) => { const hours = savedHours?.find(row => row.day_of_week === index); return <li key={day} className="flex items-center justify-between gap-3 rounded-lg bg-cream px-3 py-2 text-sm"><span className="font-medium">{day}</span><span className="text-right text-muted-ink">{!hours || hours.is_closed ? 'Closed' : `${hours.opens_at?.slice(0, 5)} – ${hours.closes_at?.slice(0, 5)}`}</span></li> })}</ul> : <p className="mt-3 rounded-xl bg-cream px-3 py-3 text-sm text-muted-ink">Not configured yet. Add your usual opening and closing times for each day.</p>
+      ) : (
+        <form onSubmit={saveHours} className="mt-4 flex flex-col gap-2">
+          <p className="rounded-lg bg-[#FFF7ED] px-3 py-2 text-xs leading-5 text-[#7C2D12]">Days start marked closed. Set each day carefully; saved hours may be used to show availability to customers.</p>
+          {draft.map(hours => <fieldset key={hours.day_of_week} className="grid grid-cols-2 items-center gap-2 rounded-xl border border-line p-2.5 sm:grid-cols-[minmax(76px,1fr)_auto_minmax(90px,1fr)_minmax(90px,1fr)]">
+            <legend className="sr-only">{WEEKDAYS[hours.day_of_week]} schedule</legend>
+            <span className="text-xs font-semibold sm:text-sm">{WEEKDAYS[hours.day_of_week]}</span>
+            <label className="flex items-center gap-1.5 text-xs text-muted-ink"><input type="checkbox" checked={hours.is_closed} onChange={event => updateDay(hours.day_of_week, { is_closed: event.target.checked })} className="size-4 accent-brand" />Closed</label>
+            <label className="flex min-w-0 flex-col gap-1 text-[10px] text-muted-ink">Opens<input aria-label={`${WEEKDAYS[hours.day_of_week]} opening time`} type="time" value={hours.opens_at?.slice(0, 5) ?? ''} disabled={hours.is_closed} required={!hours.is_closed} onChange={event => updateDay(hours.day_of_week, { opens_at: event.target.value || null })} className="h-9 min-w-0 rounded-lg border border-line bg-white px-2 text-xs text-ink disabled:bg-muted" /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-[10px] text-muted-ink">Closes<input aria-label={`${WEEKDAYS[hours.day_of_week]} closing time`} type="time" value={hours.closes_at?.slice(0, 5) ?? ''} disabled={hours.is_closed} required={!hours.is_closed} onChange={event => updateDay(hours.day_of_week, { closes_at: event.target.value || null })} className="h-9 min-w-0 rounded-lg border border-line bg-white px-2 text-xs text-ink disabled:bg-muted" /></label>
+          </fieldset>)}
+          {failure && <p role="alert" className="text-sm text-red-700">{failure}</p>}
+          <div className="flex gap-2"><button type="submit" disabled={saving} className="min-h-11 rounded-xl bg-brand px-4 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Saving…' : 'Save weekly hours'}</button><button type="button" onClick={() => { setEditing(false); setFailure('') }} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold">Cancel</button></div>
+        </form>
+      )}
+      {message && <p role="status" className="mt-3 text-sm font-medium text-green-700">{message}</p>}
+    </section>
+  )
+}
+
 function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) {
   const { profile, setProfile } = useLazyHand()
   const [signingOut, setSigningOut] = useState(false)
@@ -654,8 +752,9 @@ function PartnerAccount({ role, onExit }: { role: string; onExit: () => void }) 
       <div><h2 id="account-heading" className="text-xl font-bold">Account & shop settings</h2><p className="mt-1 text-sm text-muted-ink">Your seller profile and shop preferences.</p></div>
       <section className="rounded-2xl border border-line bg-white p-4 sm:p-5" aria-labelledby="profile-heading">
         <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-xl bg-[#FCE8E8] text-[#B91F1F]"><UserRound className="size-5" aria-hidden="true" /></span><div><h3 id="profile-heading" className="text-base font-bold">Seller profile</h3><p className="text-sm text-muted-ink">Account details</p></div></div>
-        <dl className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2"><div><dt className="text-xs font-medium text-muted-ink">Name</dt><dd className="mt-1 text-sm font-semibold">{profile.name || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Phone</dt><dd className="mt-1 text-sm font-semibold">{profile.phone ? `+91 ${profile.phone}` : 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop</dt><dd className="mt-1 text-sm font-semibold">{profile.shopName || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Business category</dt><dd className="mt-1 text-sm font-semibold capitalize">{profile.shopType || 'Not assigned'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop address</dt><dd className="mt-1 text-sm font-semibold">{[profile.village, profile.landmark].filter(Boolean).join(' · ') || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop hours</dt><dd className="mt-1 text-sm font-semibold">Not configured</dd></div></dl>
+        <dl className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2"><div><dt className="text-xs font-medium text-muted-ink">Name</dt><dd className="mt-1 text-sm font-semibold">{profile.name || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Phone</dt><dd className="mt-1 text-sm font-semibold">{profile.phone ? `+91 ${profile.phone}` : 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop</dt><dd className="mt-1 text-sm font-semibold">{profile.shopName || 'Not provided'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Business category</dt><dd className="mt-1 text-sm font-semibold capitalize">{profile.shopType || 'Not assigned'}</dd></div><div><dt className="text-xs font-medium text-muted-ink">Shop address</dt><dd className="mt-1 text-sm font-semibold">{[profile.village, profile.landmark].filter(Boolean).join(' · ') || 'Not provided'}</dd></div></dl>
       </section>
+      {role === 'Shopkeeper' && <ShopHoursSettings />}
 
       <section className="grid gap-3 sm:grid-cols-2" aria-label="Shop availability and payments">
         <div className="rounded-2xl border border-line bg-white p-4"><div className="flex items-center gap-2"><Store className="size-4 text-brand" aria-hidden="true" /><h3 className="text-sm font-bold">Shop availability</h3></div><p className="mt-2 text-sm font-semibold">Not connected</p><p className="mt-1 text-xs leading-5 text-muted-ink">Live open/closed controls aren&apos;t linked to a seller shop record yet.</p></div>
