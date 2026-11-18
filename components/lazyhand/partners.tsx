@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import useSWR from 'swr'
-import { Banknote, Bike, Calculator, Check, ClipboardList, IndianRupee, MapPin, MessageCircle, Package, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
+import { Banknote, Bike, Calculator, Check, ClipboardList, Clock3, IndianRupee, MapPin, MessageCircle, Package, Plus, Power, Printer, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
@@ -85,7 +85,7 @@ export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => voi
   const [orderStatusFilter, setOrderStatusFilter] = useState('all')
   const [orderDateFilter, setOrderDateFilter] = useState('all')
   const [actionError, setActionError] = useState('')
-  const { data: sellerData, error: sellerDataError, isLoading: sellerDataLoading, mutate: refreshSellerData } = useSWR('/api/seller', async () => {
+  const { data: sellerData, error: sellerDataError, isLoading: sellerDataLoading, mutate: refreshSellerData } = useSWR(previewMode ? null : '/api/seller', async () => {
     const response = await fetch('/api/seller')
     if (!response.ok) throw new Error('Seller workspace could not be loaded.')
     return response.json() as Promise<{ products: Array<{ id: string; category_id: string; name: string; unit: string; price: number | string; stock: number; is_available: boolean; low_stock_threshold: number; images: string[] }>; categories: Array<{ id: string; name: string }>; orders: Array<{ id: string; lines: Order['lines']; item_total: number | string; delivery_fee: number | string; platform_fee: number | string; seller_delivery_deduction: number | string; seller_commission: number | string; seller_payout: number | string; total: number | string; payment: 'cod'; status: Order['status']; customer_name: string; address: string; rider_name: string | null; rider_phone: string | null; customer_phone: string | null; placed_at: string }> }>
@@ -151,7 +151,7 @@ export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => voi
     <div className="min-h-svh bg-[#F7F8FA] pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-ink">
       <PartnerHeader eyebrow="Seller workspace" title={profile.shopName || 'Your shop'} right={<span className="rounded-full border border-line bg-[#F7F8FA] px-3 py-1.5 text-xs font-semibold text-muted-ink">Shop account</span>} />
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7">
-        {tab === 'orders' && <>
+        {tab === 'orders' && !previewMode && <>
           <section className="flex flex-col gap-1">
             <p className="text-sm font-medium text-muted-ink">Orders</p>
             <h2 className="text-2xl font-bold tracking-tight sm:text-[28px]">Your shop, at a glance</h2>
@@ -174,7 +174,9 @@ export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => voi
           </section>
         </>}
 
-        {tab === 'orders' && (
+        {tab === 'orders' && previewMode && <SellerOrderPrototype shopName={profile.shopName || 'Your shop'} />}
+
+        {tab === 'orders' && !previewMode && (
           <>
             <section aria-labelledby="order-management-heading">
               <div className="mb-3"><h2 id="order-management-heading" className="text-lg font-bold">Order management</h2><p className="mt-0.5 text-sm text-muted-ink">Orders retrieved from your shop account.</p></div>
@@ -232,6 +234,19 @@ export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => voi
                 <a href="/seller/catalog" className="inline-flex min-h-10 shrink-0 items-center rounded-lg px-2 text-xs font-semibold text-brand-deep hover:bg-[#FCE8E8]">Edit</a>
               </li>
             })}</ul>
+            {previewMode && <section aria-labelledby="sample-products-heading" className="flex flex-col gap-3 rounded-2xl border border-dashed border-[#FDBA74] bg-[#FFFAF5] p-4">
+              <div><p className="text-sm font-bold uppercase tracking-wide text-brand">Sample catalog</p><h3 id="sample-products-heading" className="mt-1 text-lg font-bold">Prototype products</h3><p className="mt-1 text-sm text-muted-ink">Illustrative inventory only; these items are not saved to your catalog.</p></div>
+              <ul className="grid gap-3 sm:grid-cols-2">{[
+                { name: 'Aashirvaad Atta', detail: 'Staples · 5 kg', price: 260, stock: 18 },
+                { name: 'Amul Toned Milk', detail: 'Dairy · 500 ml', price: 28, stock: 24 },
+                { name: 'Farm Eggs', detail: 'Dairy · Pack of 6', price: 54, stock: 8 },
+                { name: 'Tata Salt', detail: 'Staples · 1 kg', price: 28, stock: 3 },
+              ].map(product => <li key={product.name} className="flex items-center gap-3 rounded-xl border border-line bg-white p-3.5">
+                <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-[#FFF7ED] text-brand"><Package className="size-5" aria-hidden="true" /></span>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{product.name}</p><p className="mt-1 text-sm text-muted-ink">{product.detail}</p><p className="mt-1 text-base font-bold">{rupee(product.price)}</p></div>
+                <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold', product.stock <= 5 ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#DCFCE7] text-[#166534]')}>{product.stock} in stock</span>
+              </li>)}</ul>
+            </section>}
           </section>
         )}
 
@@ -252,6 +267,86 @@ export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => voi
       </main>
       <BottomNav wide items={[{ key: 'orders', label: 'Orders', Icon: ClipboardList }, { key: 'products', label: 'Products', Icon: Package }, { key: 'earnings', label: 'Earnings', Icon: Banknote }, { key: 'account', label: 'Account', Icon: UserRound }]} active={tab} onSelect={setTab} />
     </div>
+  )
+}
+
+type PrototypeOrderStatus = 'placed' | 'accepted' | 'dispatching' | 'rider_found' | 'picked' | 'delivered' | 'rejected'
+type PrototypeOrder = { id: string; customer: string; address: string; phone: string; placedAt: string; payment: string; items: Array<{ name: string; qty: number; price: number }>; total: number; sellerEarns: number; status: PrototypeOrderStatus; prepMinutes: number; rejectReason?: string }
+
+const prototypeOrdersSeed: PrototypeOrder[] = [
+  { id: 'LH2483', customer: 'Aarav Sharma', address: 'Rampur, Ward 4 · near Shiv Mandir', phone: '+91 98765 43210', placedAt: new Date(Date.now() - 2 * 60_000).toISOString(), payment: 'Cash on delivery', items: [{ name: 'Aashirvaad Atta 5 kg', qty: 1, price: 260 }, { name: 'Amul Toned Milk 500 ml', qty: 2, price: 28 }, { name: 'Tata Salt 1 kg', qty: 1, price: 28 }], total: 344, sellerEarns: 327, status: 'placed', prepMinutes: 15 },
+  { id: 'LH2482', customer: 'Meera Kumari', address: 'Madhopur · Hanuman Chowk', phone: '+91 98765 43211', placedAt: new Date(Date.now() - 11 * 60_000).toISOString(), payment: 'Cash on delivery', items: [{ name: 'Farm Eggs (6)', qty: 1, price: 54 }, { name: 'Maggi Noodles 70 g', qty: 4, price: 14 }], total: 110, sellerEarns: 105, status: 'accepted', prepMinutes: 10 },
+]
+
+export function SellerOrderPrototype({ shopName = 'Gupta Kirana Store' }: { shopName?: string }) {
+  const [orders, setOrders] = useState(prototypeOrdersSeed)
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null)
+  const [prepMinutes, setPrepMinutes] = useState('15')
+  const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('Item unavailable')
+  const [notice, setNotice] = useState('')
+  const [pickupOtp, setPickupOtp] = useState('')
+  const activeOrder = orders.find(order => order.id === activeOrderId)
+  const dispatchingOrder = orders.find(order => order.status === 'dispatching')
+  const setStatus = (id: string, status: PrototypeOrderStatus, extra: Partial<PrototypeOrder> = {}) => {
+    setOrders(current => current.map(order => order.id === id ? { ...order, ...extra, status } : order))
+    setNotice('Prototype state updated locally. No order was sent or saved.')
+  }
+  const incomingCount = orders.filter(order => order.status === 'placed').length
+
+  return (
+    <section aria-labelledby="prototype-orders-heading" className="flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-3 rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4 text-[#7C2D12]">
+        <div><p className="text-xs font-bold uppercase tracking-wide">UI prototype · sample orders</p><p className="mt-1 text-sm leading-5">This flow is isolated from Supabase and the order APIs. All actions are temporary and local to this screen.</p></div>
+        <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold">DEMO</span>
+      </div>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div><p className="text-sm font-medium text-muted-ink">{shopName}</p><h2 id="prototype-orders-heading" className="mt-1 text-2xl font-bold tracking-tight sm:text-[28px]">Incoming orders</h2></div>
+        <div className="rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold"><span aria-live="polite">{incomingCount ? `${incomingCount} ${incomingCount === 1 ? 'order needs' : 'orders need'} a response` : 'No orders need a response'}</span></div>
+      </header>
+      <div className="grid grid-cols-2 gap-3">
+        <Stat label="Pending response" value={String(incomingCount)} />
+        <Stat label="Sample earnings today" value={rupee(orders.filter(order => order.status !== 'rejected').reduce((sum, order) => sum + order.sellerEarns, 0))} />
+      </div>
+      <div className="flex flex-col gap-3">
+        {orders.map(order => <article key={order.id} className={cn('rounded-2xl border bg-white p-4 shadow-sm sm:p-5', order.status === 'placed' ? 'border-[#FDBA74] ring-1 ring-[#FDBA74]' : 'border-line')}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold">Order #{order.id}</h3><span className={cn('rounded-full px-2.5 py-1 text-xs font-bold', order.status === 'placed' ? 'bg-[#FFEDD5] text-[#9A3412]' : order.status === 'rejected' ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]')}>{order.status === 'placed' ? 'NEW ORDER' : order.status === 'accepted' ? 'ACCEPTED · PACKING' : order.status === 'dispatching' ? 'FINDING A RIDER' : order.status === 'rider_found' ? 'RIDER FOUND' : order.status.toUpperCase()}</span></div>
+              <p className="mt-1.5 text-sm text-muted-ink">{order.customer} · {order.payment} · {new Date(order.placedAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</p>
+            </div>
+            <div className="text-right"><p className="text-xs text-muted-ink">YOU EARN</p><p className="text-xl font-extrabold tabular-nums">{rupee(order.sellerEarns)}</p></div>
+          </div>
+          <p className="mt-3 flex items-start gap-2 text-sm text-ink"><MapPin className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden="true" />{order.address}</p>
+          <ul className="mt-3 divide-y divide-line rounded-xl bg-[#F7F8FA] px-3">
+            {order.items.map(item => <li key={item.name} className="flex justify-between gap-3 py-2 text-sm"><span>{item.qty} × {item.name}</span><span className="font-medium tabular-nums">{rupee(item.qty * item.price)}</span></li>)}
+          </ul>
+          <p className="mt-3 text-sm font-semibold">Customer total <span className="float-right">{rupee(order.total)}</span></p>
+          {order.status === 'placed' && <div className="mt-4 flex flex-row gap-2"><button type="button" onClick={() => setRejectingOrderId(order.id)} className="min-h-12 flex-1 rounded-xl border border-line px-4 text-sm font-semibold text-[#991B1B]">Reject</button><button type="button" onClick={() => { setActiveOrderId(order.id); setPrepMinutes(String(order.prepMinutes)) }} className="min-h-12 flex-1 rounded-xl bg-brand px-5 text-sm font-bold text-white hover:bg-brand-deep">Accept</button></div>}
+          {order.status === 'accepted' && <div className="mt-4 rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3"><p className="text-sm font-bold text-[#166534]">Accepted · Packing · {order.prepMinutes} min prep</p><button type="button" onClick={() => setStatus(order.id, 'dispatching')} className="mt-3 min-h-14 w-full rounded-xl bg-brand px-4 text-base font-bold text-white hover:bg-brand-deep">Ready for pickup</button></div>}
+          {order.status === 'dispatching' && <p className="mt-4 rounded-xl bg-[#EFF6FF] p-4 text-sm font-semibold text-[#1E3A8A]">Rider search is active in the prototype.</p>}
+          {order.status === 'rider_found' && <div className="mt-4 rounded-2xl border border-line bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-base font-bold">Rider accepted · Rohan Singh</p><p className="mt-1 text-sm text-muted-ink">Honda Activa · BR 01 AB 2483</p><p className="mt-1 text-sm text-muted-ink">ETA 8 min · 1.2 km away</p><button type="button" onClick={() => setNotice('Calling is not configured in this prototype.')} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-semibold"><Bike className="size-4" aria-hidden="true" />Call rider</button></div><span className="rounded-full bg-[#EFF6FF] px-3 py-1.5 text-sm font-semibold text-[#1E3A8A]">Sample rider</span></div>
+            <div aria-label="Illustrative rider route preview, not live GPS" className="relative mt-4 h-64 overflow-hidden rounded-2xl border border-[#DCE7DD] bg-[#EEF4EC]">
+              <div className="absolute inset-0 opacity-80" style={{ backgroundImage: 'linear-gradient(0deg, transparent 46%, #D6E1D4 47%, #D6E1D4 53%, transparent 54%), linear-gradient(90deg, transparent 46%, #D6E1D4 47%, #D6E1D4 53%, transparent 54%)', backgroundSize: '84px 72px', transform: 'rotate(-8deg) scale(1.2)' }} />
+              <div className="absolute left-[13%] top-[76%] z-10 rounded-full border-2 border-white bg-brand p-2 text-white shadow-lg"><MapPin className="size-5" aria-hidden="true" /></div>
+              <div className="absolute right-[9%] top-[10%] z-10 rounded-xl border border-line bg-white px-3 py-2 text-sm font-semibold text-ink shadow">{shopName}</div>
+              <svg aria-hidden="true" className="absolute inset-0 h-full w-full" viewBox="0 0 400 260" preserveAspectRatio="none"><path d="M 55 210 C 120 190 120 125 215 145 S 315 96 360 52" fill="none" stroke="#DC2626" strokeDasharray="7 8" strokeLinecap="round" strokeWidth="5" /></svg>
+              <div className="prototype-rider-marker absolute z-20 grid size-10 place-items-center rounded-full border-2 border-white bg-[#1D4ED8] text-white shadow-lg"><Bike className="size-5" aria-hidden="true" /></div>
+              <div className="absolute left-3 top-3 rounded-lg bg-white/95 px-3 py-2 text-sm font-semibold text-ink shadow">Illustrative map · simulated route</div>
+            </div>
+            <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-[1fr_auto] sm:items-end"><div><label htmlFor={`pickup-otp-${order.id}`} className="block text-sm font-semibold">Pickup OTP</label><p className="mt-1 text-sm text-muted-ink">Sample code: <strong className="font-mono tracking-[0.2em] text-ink">4821</strong></p><input id={`pickup-otp-${order.id}`} aria-label="Enter pickup OTP" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={pickupOtp} onChange={event => setPickupOtp(event.target.value.replace(/\\D/g, '').slice(0, 4))} placeholder="4-digit code" className="mt-2 h-12 w-full rounded-xl border border-line px-3 text-base tracking-[0.25em] sm:max-w-48" /></div><button type="button" disabled={pickupOtp !== '4821'} onClick={() => { setStatus(order.id, 'picked'); setPickupOtp('') }} className="min-h-12 rounded-xl bg-brand px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">Confirm pickup</button></div>
+          </div>}
+          {order.status === 'picked' && <div className="mt-4 rounded-2xl border border-[#BFDBFE] bg-[#EFF6FF] p-4"><p className="text-base font-bold text-[#1E3A8A]">On the way</p><p className="mt-1 text-sm text-[#1E3A8A]">Customer delivery OTP · Pending</p><p className="mt-1 text-sm text-[#1E3A8A]">The customer shares their delivery code with the rider at drop-off. This prototype does not issue or verify real OTPs.</p><button type="button" onClick={() => setStatus(order.id, 'delivered')} className="mt-4 min-h-12 w-full rounded-xl bg-brand px-4 text-sm font-bold text-white">Simulate customer OTP verified</button></div>}
+          {order.status === 'delivered' && <div className="mt-4 rounded-xl bg-[#F0FDF4] p-3"><p className="text-base font-bold text-[#166534]">Delivered</p><p className="mt-1 text-sm text-[#166534]">Customer delivery OTP · Verified in prototype</p></div>}
+          {order.status === 'rejected' && <p className="mt-4 rounded-xl bg-[#FEF2F2] p-3 text-sm text-[#991B1B]">Rejected · {order.rejectReason}</p>}
+        </article>)}
+      </div>
+      {notice && <p role="status" className="rounded-xl bg-[#EFF6FF] p-3 text-sm text-[#1E3A8A]">{notice}</p>}
+
+      {dispatchingOrder && <div className="fixed inset-0 z-[60] flex min-h-[100dvh] flex-col items-center justify-center overflow-y-auto bg-[#101820] px-5 py-10 text-white" role="dialog" aria-modal="true" aria-labelledby="radar-heading"><div className="w-full max-w-md text-center"><p className="text-sm font-bold uppercase tracking-[0.16em] text-[#FDBA74]">Order #{dispatchingOrder.id} · prototype</p><div aria-hidden="true" className="relative mx-auto mt-10 grid size-64 place-items-center rounded-full border border-white/15 bg-[#152630]"><span className="prototype-radar-ring absolute inset-0 rounded-full border-2 border-[#FB923C]" /><span className="prototype-radar-ring absolute inset-6 rounded-full border-2 border-[#FB923C]" style={{ animationDelay: '0.7s' }} /><span className="prototype-radar-ring absolute inset-12 rounded-full border border-[#FDBA74]" style={{ animationDelay: '1.4s' }} /><span className="absolute inset-[4.5rem] rounded-full border border-white/20" /><span className="absolute size-4 rounded-full bg-[#FDBA74] shadow-[0_0_24px_8px_rgba(251,146,60,0.35)]" /></div><h2 id="radar-heading" className="mt-9 text-2xl font-extrabold">Notifying nearby riders…</h2><p className="mt-3 text-base leading-6 text-white/75">Searching around {shopName}. This is an animated prototype only; no riders are being contacted.</p><button type="button" onClick={() => setStatus(dispatchingOrder.id, 'rider_found')} className="mt-8 min-h-12 w-full rounded-xl bg-brand px-5 text-base font-bold text-white hover:bg-brand-deep">Simulate rider acceptance</button><button type="button" onClick={() => setStatus(dispatchingOrder.id, 'accepted')} className="mt-3 min-h-11 w-full rounded-xl border border-white/25 px-5 text-sm font-semibold text-white/85">Cancel rider search</button></div></div>}
+      {activeOrder && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onMouseDown={event => { if (event.target === event.currentTarget) setActiveOrderId(null) }}><section role="dialog" aria-modal="true" aria-labelledby="accept-order-title" className="max-h-[90svh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-brand">Review new order</p><h3 id="accept-order-title" className="mt-1 text-xl font-extrabold">Accept #{activeOrder.id}?</h3></div><button type="button" aria-label="Close order review" onClick={() => setActiveOrderId(null)} className="rounded-full p-2 hover:bg-[#F7F8FA]"><X className="size-5" /></button></div><p className="mt-1 text-sm text-muted-ink">{activeOrder.customer} · {activeOrder.payment}</p><ul className="mt-4 divide-y divide-line rounded-xl bg-[#F7F8FA] px-3">{activeOrder.items.map(item => <li key={item.name} className="flex justify-between gap-3 py-3 text-sm"><span>{item.qty} × {item.name}</span><strong>{rupee(item.qty * item.price)}</strong></li>)}</ul><div className="mt-4 flex items-center justify-between text-sm"><span className="text-muted-ink">Customer pays (COD)</span><strong>{rupee(activeOrder.total)}</strong></div><div className="mt-2 flex items-center justify-between text-base"><span className="font-semibold">You earn</span><strong className="text-xl">{rupee(activeOrder.sellerEarns)}</strong></div><label className="mt-4 flex flex-col gap-1.5 text-sm font-semibold">Preparation time<select value={prepMinutes} onChange={event => setPrepMinutes(event.target.value)} className="h-12 rounded-xl border border-line bg-white px-3 text-base"><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="20">20 minutes</option><option value="30">30 minutes</option><option value="45">45 minutes</option></select></label><div className="mt-5 flex flex-row gap-2"><button type="button" onClick={() => { window.print(); setNotice('Print dialog opened for this sample order.') }} className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-line px-4 text-sm font-semibold"><Printer className="size-4" aria-hidden="true" />Print</button><button type="button" onClick={() => { setStatus(activeOrder.id, 'accepted', { prepMinutes: Number(prepMinutes) }); setActiveOrderId(null) }} className="min-h-12 flex-1 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-brand-deep">Confirm</button></div></section></div>}
+      {rejectingOrderId && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"><section role="dialog" aria-modal="true" aria-labelledby="reject-order-title" className="w-full max-w-md rounded-t-3xl bg-white p-5 sm:rounded-3xl"><h3 id="reject-order-title" className="text-lg font-bold">Reject this order?</h3><p className="mt-1 text-sm text-muted-ink">Choose a reason to show with this sample order.</p><label className="mt-4 flex flex-col gap-1.5 text-sm font-semibold">Reason<select value={rejectReason} onChange={event => setRejectReason(event.target.value)} className="h-12 rounded-xl border border-line bg-white px-3"><option>Item unavailable</option><option>Shop is closing</option><option>Unable to prepare in time</option><option>Other</option></select></label><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setRejectingOrderId(null)} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold">Keep order</button><button type="button" onClick={() => { setStatus(rejectingOrderId, 'rejected', { rejectReason }); setRejectingOrderId(null) }} className="min-h-11 rounded-xl bg-[#B91C1C] px-4 text-sm font-bold text-white">Confirm reject</button></div></section></div>}
+    </section>
   )
 }
 
