@@ -1,8 +1,9 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DEFAULT_DELIVERY_DISTANCE_KM,
+  billFor,
   seedHistory,
   seedProducts,
   seedShops,
@@ -36,7 +37,7 @@ type LazyHandState = {
   removeItem: (productId: string) => void
   setDeliveryDistance: (distanceKm: number) => void
   resolveConflict: (replace: boolean) => void
-  placeOrder: (payment: Payment, address: string) => Promise<Order | null>
+  placeOrder: (payment: Payment, address: string) => Promise<Order[]>
   reorder: (order: Order) => void
   setOrderStatus: (orderId: string, status: OrderStatus, riderName?: string) => void
   verifyOrderOtp: (orderId: string, phase: 'pickup' | 'delivery', code: string) => boolean
@@ -78,6 +79,7 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
   const [conflictProductId, setConflictProductId] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>(seedHistory)
   const [profile, setProfile] = useState<Profile>(emptyProfile)
+  const orderAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
 
   const setCatalogData = useCallback((nextShops: Shop[], nextProducts: Product[]) => {
     setShops(nextShops)
@@ -150,11 +152,72 @@ export function LazyHandProvider({ children, allowDemoOrders = false }: { childr
   )
 
   const placeOrder = useCallback(
-    async (_payment: Payment, _address: string) => {
-      if (!cart.shopId || cartLines.length === 0) return null
-      throw new Error('Delivery route distance cannot be confirmed yet. Checkout is temporarily unavailable.')
+    async (payment: Payment, address: string) => {
+      if (!cart.shopId || cartLines.length === 0) return []
+      const groupedLines = Array.from(cartLines.reduce((groups, line) => {
+        const group = groups.get(line.product.shopId) ?? []
+        group.push(line)
+        groups.set(line.product.shopId, group)
+        return groups
+      }, new Map<string, typeof cartLines>()).entries())
+      const multiStore = groupedLines.length > 1
+      const demoOnly = cartLines.every(({ product }) => product.demoOnly)
+
+      if (demoOnly) {
+        if (!allowDemoOrders) throw new Error('These preview items cannot be ordered from this build.')
+        const bill = billFor(cartTotal, cart.deliveryDistanceKm, false, { multiStore: false })
+        const order: Order = {
+          id: `TEST${Date.now().toString().slice(-6)}`,
+          shopId: cart.shopId,
+          lines: cartLines.map(({ product, qty }) => ({ productId: product.id, name: product.name, price: product.price, qty })),
+          payment,
+          status: 'placed',
+          placedAt: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          customerName: profile.name || 'Guest',
+          address,
+          pickupOtp: createOtp(),
+          deliveryOtp: createOtp(),
+          ...bill,
+        }
+        setOrders(current => [order, ...current])
+        setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
+        return [order]
+      }
+
+      const coordinates = await new Promise<{ deliveryLatitude: number; deliveryLongitude: number } | null>(resolve => {
+        if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return resolve(null)
+        navigator.geolocation.getCurrentPosition(
+          position => resolve({ deliveryLatitude: position.coords.latitude, deliveryLongitude: position.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 5 * 60 * 1000 },
+        )
+      })
+
+      const requestBody = {
+        stores: groupedLines.map(([shopId, lines]) => ({ shopId, lines: lines.map(({ product, qty }) => ({ productId: product.id, qty })) })),
+        address,
+        ...(coordinates ?? {}),
+      }
+      const fingerprint = JSON.stringify(requestBody)
+      if (!orderAttempt.current || orderAttempt.current.fingerprint !== fingerprint) {
+        orderAttempt.current = { fingerprint, key: crypto.randomUUID() }
+      }
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': orderAttempt.current.key },
+        body: JSON.stringify(requestBody),
+      })
+      const result = await response.json().catch(() => null) as { orders?: Order[]; order?: Order; error?: string } | null
+      const savedOrders = result?.orders ?? (result?.order ? [result.order] : [])
+      if (!response.ok || savedOrders.length !== groupedLines.length) {
+        throw new Error(result?.error ?? 'Your order could not be saved. Please try again.')
+      }
+      orderAttempt.current = null
+      setOrders(current => [...savedOrders, ...current])
+      setCart({ shopId: null, items: {}, deliveryDistanceKm: DEFAULT_DELIVERY_DISTANCE_KM })
+      return savedOrders
     },
-    [cart.shopId, cartLines.length],
+    [allowDemoOrders, cart.shopId, cart.deliveryDistanceKm, cartLines, cartTotal, profile.name],
   )
 
   const reorder = useCallback(

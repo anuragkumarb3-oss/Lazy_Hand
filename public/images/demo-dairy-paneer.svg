@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Dummy paneer product image">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#DFF3E5"/>
+      <stop offset="1" stop-color="#BFE3CB"/>
+    </linearGradient>
+    <linearGradient id="block" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFDF4"/>
+      <stop offset="1" stop-color="#F3E6C7"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#3F6B4D" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <circle cx="326" cy="72" r="50" fill="#FFFFFF" opacity=".35"/>
+  <ellipse cx="200" cy="334" rx="132" ry="22" fill="#3F6B4D" opacity=".14"/>
+  <g filter="url(#shadow)">
+    <rect x="78" y="218" width="244" height="104" rx="16" fill="#F9F1DD"/>
+    <rect x="78" y="218" width="244" height="26" rx="13" fill="#FFFFFF"/>
+    <rect x="94" y="120" width="102" height="98" rx="12" fill="url(#block)" stroke="#E7D6B0" stroke-width="2"/>
+    <rect x="202" y="132" width="102" height="86" rx="12" fill="url(#block)" stroke="#E7D6B0" stroke-width="2"/>
+    <rect x="156" y="112" width="94" height="94" rx="12" fill="#FFFEF8" stroke="#E7D6B0" stroke-width="2"/>
+    <path d="M166 132h74M166 146h74" stroke="#F0E3C8" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <path d="M114 88c18-10 38-10 54 0" fill="none" stroke="#79A98A" stroke-width="6" stroke-linecap="round" opacity=".6"/>
+  <path d="M286 96c12 6 20 16 22 28" fill="none" stroke="#79A98A" stroke-width="6" stroke-linecap="round" opacity=".45"/>
+</svg>

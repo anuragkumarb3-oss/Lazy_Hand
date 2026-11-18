@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Dummy curd product image">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6F1FF"/>
+      <stop offset="1" stop-color="#C9DDF6"/>
+    </linearGradient>
+    <linearGradient id="cup" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF1FA"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7FB4E8"/>
+      <stop offset="1" stop-color="#4F8FCE"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#335C85" flood-opacity=".24"/>
+    </filter>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <circle cx="72" cy="86" r="46" fill="#FFFFFF" opacity=".4"/>
+  <ellipse cx="200" cy="336" rx="120" ry="20" fill="#335C85" opacity=".14"/>
+  <g filter="url(#shadow)">
+    <path d="M116 166h168l-16 150a18 18 0 0 1-18 16h-100a18 18 0 0 1-18-16z" fill="url(#cup)"/>
+    <ellipse cx="200" cy="166" rx="84" ry="20" fill="#F7FBFF"/>
+    <rect x="108" y="138" width="184" height="34" rx="16" fill="url(#lid)"/>
+    <ellipse cx="200" cy="156" rx="70" ry="10" fill="#DCEBFA" opacity=".8"/>
+    <path d="M154 232c14-14 34-16 48-4 12 10 30 10 44-2" fill="none" stroke="#C9DDF0" stroke-width="6" stroke-linecap="round"/>
+    <path d="M148 268h104" stroke="#DCE8F4" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(276 252) rotate(18)">
+    <ellipse cx="0" cy="0" rx="34" ry="22" fill="#FFFFFF" stroke="#B9D2E8" stroke-width="3"/>
+    <path d="M30 4h34" stroke="#8FB6D8" stroke-width="7" stroke-linecap="round"/>
+    <path d="M-14-6c8-7 20-7 28 0" fill="none" stroke="#E7F1FA" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

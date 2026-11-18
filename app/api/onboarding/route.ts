@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
 import { LEGAL_POLICY_VERSION, policiesForRole } from '@/lib/legal-policies'
+import { isSameOriginRequest } from '@/lib/same-origin'
 
 export const dynamic = 'force-dynamic'
 const allowedRoles = new Set(['customer', 'shopkeeper', 'rider'])
@@ -10,12 +11,7 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error } = await supabase.auth.getUser()
   if (error || !user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 })
-  const origin = request.headers.get('origin')
-  try {
-    if (!origin || new URL(origin).origin !== new URL(request.url).origin) {
-      return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 })
-    }
-  } catch {
+  if (!isSameOriginRequest(request)) {
     return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 })
   }
 

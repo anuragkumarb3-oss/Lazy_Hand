@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
+import { isAdminUser, normalizePhone } from '@/lib/authz'
+import { isSameOriginRequest as sameOrigin } from '@/lib/same-origin'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,13 +17,15 @@ async function identity(userId: string) {
   return rows[0] as { role: string; shop_type: string } | undefined
 }
 
-function sameOrigin(request: Request) {
-  const origin = request.headers.get('origin')
-  try { return Boolean(origin) && new URL(origin!).origin === new URL(request.url).origin } catch { return false }
-}
-
-function admin(user: { app_metadata?: Record<string, unknown> }) {
-  return user.app_metadata?.role === 'admin'
+async function audit(actorPhone: string | null, action: string, target: string, detail: Record<string, unknown>) {
+  try {
+    await pool.query(
+      'INSERT INTO audit_log (actor_phone, action, target, detail) VALUES ($1, $2, $3, $4::jsonb)',
+      [actorPhone, action, target, JSON.stringify(detail)],
+    )
+  } catch (error) {
+    console.error('[api/catalog/manage] Audit write failed', error instanceof Error ? error.message : error)
+  }
 }
 
 function validVariant(item: unknown) {
@@ -34,7 +38,7 @@ function validVariant(item: unknown) {
 
 export async function GET(request: Request) {
   const user = await currentUser()
-  const isAdmin = Boolean(user && admin(user))
+  const isAdmin = await isAdminUser(user)
   const role = user ? await identity(user.id) : undefined
   const view = new URL(request.url).searchParams.get('view')
   if (view === 'seller' && (!user || role?.role !== 'shopkeeper')) return NextResponse.json({ error: 'Seller access required.' }, { status: 403 })
@@ -89,7 +93,8 @@ export async function POST(request: Request) {
     body = parsed as Record<string, unknown>
   } catch { return NextResponse.json({ error: 'Invalid request.' }, { status: 400 }) }
 
-  const isAdmin = admin(user)
+  const isAdmin = await isAdminUser(user)
+  const actorPhone = normalizePhone(user.phone)
   const profile = isAdmin ? undefined : await identity(user.id)
   const action = body.action
 
@@ -104,6 +109,7 @@ export async function POST(request: Request) {
     } else {
       await pool.query(`INSERT INTO catalog_categories(name,scope,parent_id,business_types,is_active,is_visible,display_order,image_url,icon) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, params)
     }
+    await audit(actorPhone, typeof id === 'string' && id ? 'category.update' : 'category.create', typeof id === 'string' && id ? id : name.trim(), { name: name.trim(), scope })
     return NextResponse.json({ ok: true })
   }
 
@@ -111,7 +117,11 @@ export async function POST(request: Request) {
     if (!isAdmin || typeof body.id !== 'string') return NextResponse.json({ error: 'Admin access required.' }, { status: 403 })
     try {
       const result = await pool.query('DELETE FROM catalog_categories WHERE id = $1', [body.id])
-      return result.rowCount ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Category not found.' }, { status: 404 })
+      if (result.rowCount) {
+        await audit(actorPhone, 'category.delete', body.id, {})
+        return NextResponse.json({ ok: true })
+      }
+      return NextResponse.json({ error: 'Category not found.' }, { status: 404 })
     } catch {
       return NextResponse.json({ error: 'Categories used by products or subcategories cannot be deleted; deactivate them instead.' }, { status: 409 })
     }
@@ -129,6 +139,7 @@ export async function POST(request: Request) {
       await client.query('UPDATE catalog_categories SET display_order=$1 WHERE id=$2', [second.display_order, first.id])
       await client.query('UPDATE catalog_categories SET display_order=$1 WHERE id=$2', [first.display_order, second.id])
       await client.query('COMMIT')
+      await audit(actorPhone, 'category.reorder', body.id, { targetId: body.targetId })
       return NextResponse.json({ ok: true })
     } catch {
       await client.query('ROLLBACK')
@@ -149,6 +160,7 @@ export async function POST(request: Request) {
         if (!profileUpdate.rowCount) throw new Error('Seller profile not found')
       }
       await client.query('COMMIT')
+      await audit(actorPhone, body.approve ? 'seller.approve' : 'seller.reject', body.userId, { businessType: body.businessType ?? null })
       return NextResponse.json({ ok: true })
     } catch {
       await client.query('ROLLBACK')

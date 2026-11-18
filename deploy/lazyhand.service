@@ -13,7 +13,7 @@ Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=/etc/lazyhand/lazyhand.env
-ExecStart=/usr/bin/env pnpm start --hostname 127.0.0.1 --port 3000
+ExecStart=/opt/lazyhand/current/node_modules/.bin/next start --hostname 127.0.0.1 --port 3000
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

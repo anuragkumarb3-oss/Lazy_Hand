@@ -1,17 +1,12 @@
 import { NextResponse } from 'next/server'
+import { currentUser } from '@/lib/authz'
 import { pool } from '@/lib/db'
-import { createClient } from '@/lib/supabase/server'
+import { isSameOriginRequest } from '@/lib/same-origin'
 
 export const dynamic = 'force-dynamic'
 
-async function authenticatedUser() {
-  const supabase = await createClient()
-  const { data: { user }, error } = await supabase.auth.getUser()
-  return error ? null : user
-}
-
 export async function GET() {
-  const user = await authenticatedUser()
+  const user = await currentUser()
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 })
 
   const { rows } = await pool.query(
@@ -26,7 +21,7 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const user = await authenticatedUser()
+  const user = await currentUser()
   if (!user) return NextResponse.json({ error: 'Sign in required.' }, { status: 401 })
   if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 })
 
@@ -83,15 +78,5 @@ function toProfile(row: Record<string, unknown>) {
     shopName: row.shop_name,
     shopType: row.shop_type,
     vehicle: row.vehicle,
-  }
-}
-
-function isSameOriginRequest(request: Request) {
-  const origin = request.headers.get('origin')
-  if (!origin) return false
-  try {
-    return new URL(origin).origin === new URL(request.url).origin
-  } catch {
-    return false
   }
 }

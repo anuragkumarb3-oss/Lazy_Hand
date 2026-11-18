@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
 import { isValidTimeZone } from '@/lib/shop-status'
+import { isSameOriginRequest } from '@/lib/same-origin'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,10 +34,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const user = await seller()
   if (!user) return NextResponse.json({ error: 'Approved seller access required.' }, { status: 403 })
-  const origin = request.headers.get('origin')
-  try {
-    if (!origin || new URL(origin).origin !== new URL(request.url).origin) throw new Error('origin')
-  } catch {
+  if (!isSameOriginRequest(request)) {
     return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 })
   }
   let body: { hours?: unknown; settings?: unknown }

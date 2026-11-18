@@ -67,13 +67,22 @@ async function mutateCatalog(payload: Record<string, unknown>) {
 
 function useIdentity() {
   return useSWR('catalog-identity', async () => {
-    const { data: { user }, error } = await createClient().auth.getUser()
-    if (error) throw error
-    if (!user) return null
-    const response = await fetch('/api/profile', { cache: 'no-store' })
-    if (!response.ok) throw new Error('Profile could not be loaded.')
-    const result = await response.json() as { profile: { role: string; shopType: string } | null }
-    return { id: user.id, admin: user.app_metadata?.role === 'admin', role: result.profile?.role ?? 'customer', businessType: (result.profile?.shopType ?? '').toLowerCase() }
+    let response = await fetch('/api/admin/me', { cache: 'no-store' })
+    let previewAvailable = false
+    if (response.status === 401) {
+      const preview = await fetch('/api/preview/session', { cache: 'no-store' })
+      if (preview.ok) {
+        previewAvailable = true
+        const current = await preview.json() as { phone: string | null }
+        if (current.phone) response = await fetch('/api/admin/me', { cache: 'no-store' })
+      }
+    }
+    if (response.status === 401) {
+      return { id: null, admin: false, role: 'customer', businessType: '', phone: null, previewAvailable }
+    }
+    if (!response.ok) throw new Error('Admin identity could not be loaded.')
+    const me = await response.json() as { admin: boolean; phone: string | null; role: string; businessType: string }
+    return { id: me.phone, admin: me.admin, role: me.role, businessType: me.businessType, phone: me.phone, previewAvailable }
   })
 }
 
@@ -95,6 +104,30 @@ export function CategoryManagement() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [failure, setFailure] = useState('')
+  const [previewPhone, setPreviewPhone] = useState('9798077838')
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+
+  const startPreviewSession = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setPreviewBusy(true)
+    setPreviewError('')
+    try {
+      const response = await fetch('/api/preview/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: previewPhone }),
+      })
+      const result = await response.json().catch(() => null) as { error?: string; admin?: boolean } | null
+      if (!response.ok) throw new Error(result?.error || 'Preview sign-in failed.')
+      if (!result?.admin) throw new Error('That number is not an active admin.')
+      await identity.mutate()
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : 'Preview sign-in failed.')
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
 
   const reviewSeller = async (userId: string, approve: boolean) => {
     setReviewingSeller(userId); setFailure(''); setMessage('')
@@ -169,7 +202,21 @@ export function CategoryManagement() {
   }
 
   if (identity.isLoading) return <div className="grid min-h-svh place-items-center"><LoaderCircle className="size-6 animate-spin" /></div>
-  if (identity.error || !identity.data?.admin) return <main className="mx-auto grid min-h-svh max-w-lg content-center gap-3 p-6"><h1 className="text-2xl font-bold">Admin access required</h1><p className="text-sm text-muted-ink">Category administration is restricted to accounts with the trusted admin role. Sign in with an authorized admin account.</p></main>
+  if (identity.error || !identity.data?.admin) return (
+    <main className="mx-auto grid min-h-svh max-w-lg content-center gap-4 p-6">
+      <h1 className="text-2xl font-bold">Admin access required</h1>
+      <p className="text-sm text-muted-ink">Category administration is restricted to accounts with the trusted admin role. Sign in with an authorized admin account.</p>
+      {identity.data?.previewAvailable && (
+        <form onSubmit={startPreviewSession} className="flex flex-col gap-2 rounded-2xl border border-line bg-white p-4">
+          <p className="text-sm font-semibold">Preview sign-in (no OTP)</p>
+          <p className="text-xs text-muted-ink">Only numbers on the admin allow-list can continue.</p>
+          <input value={previewPhone} onChange={event => setPreviewPhone(event.target.value)} inputMode="numeric" maxLength={10} className="h-11 rounded-xl border border-line px-3 text-sm" aria-label="Admin phone number" />
+          {previewError && <p role="alert" className="text-xs text-red-700">{previewError}</p>}
+          <button type="submit" disabled={previewBusy} className="h-11 rounded-xl bg-brand text-sm font-semibold text-white disabled:opacity-50">{previewBusy ? 'Signing in…' : 'Enter admin panel'}</button>
+        </form>
+      )}
+    </main>
+  )
 
   return <main className="mx-auto min-h-svh max-w-5xl bg-cream px-4 py-8 text-ink sm:px-8">
     <header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-deep">LazyHand control center</p><h1 className="mt-2 text-3xl font-bold tracking-tight">Category management</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-ink">One editable catalog powers customer browsing and seller listings. Retail and restaurant menus stay separate.</p></div><a href="/" className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-semibold">Customer app</a></header>

@@ -94,7 +94,7 @@ export const seedProducts: Product[] = [
 ]
 
 export type OrderStatus = 'placed' | 'accepted' | 'ready' | 'picked' | 'delivered' | 'rejected'
-export type Payment = 'cod'
+export type Payment = 'cod' | 'upi'
 export type OrderLine = { productId: string; name: string; price: number; qty: number }
 
 export type Order = {
@@ -107,6 +107,7 @@ export type Order = {
   deliveryDistanceKm: number
   riderPayout: number
   sellerDeliveryDeduction: number
+  sellerCommission: number
   sellerPayout: number
   total: number
   multiStoreSurcharge?: number
@@ -116,6 +117,8 @@ export type Order = {
   customerName: string
   address: string
   riderName?: string
+  riderPhone?: string
+  customerPhone?: string
   pickupOtp?: string
   deliveryOtp?: string
   pickupVerified?: boolean
@@ -134,6 +137,7 @@ export const PLATFORM_FEE_THRESHOLD = 100
 export const DEFAULT_PLATFORM_FEE = 0
 export const MAX_PLATFORM_FEE = 0
 export const DELIVERY_DISCOUNT_PERCENT = 50
+export const SELLER_COMMISSION_PERCENT = 5
 
 export const DELIVERY_SLABS = [
   { label: '0–2 km', maxDistanceKm: 2, customerFee: CUSTOMER_DELIVERY_FEE, riderPayout: 20 },
@@ -169,6 +173,9 @@ export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANC
   const platformFeePaise = 0
   const multiStoreSurchargePaise = 0
   const sellerDeliveryDeduction = 0
+  // LazyHand charges the shop/restaurant 5% of the item subtotal on every order.
+  // It is deducted from the seller payout, never added to the customer's total.
+  const sellerCommissionPaise = itemTotalPaise <= 0 ? 0 : Math.round(itemTotalPaise * SELLER_COMMISSION_PERCENT / 100)
   return {
     itemTotal: itemTotalPaise / 100,
     deliveryFeeBeforeDiscount: deliveryFeeBeforeDiscountPaise / 100,
@@ -181,7 +188,8 @@ export function billFor(itemTotal: number, distanceKm = DEFAULT_DELIVERY_DISTANC
     deliveryDistanceKm: distanceKm,
     riderPayout: itemTotalPaise <= 0 || shopSelfDelivers ? 0 : slab.riderPayout,
     sellerDeliveryDeduction,
-    sellerPayout: itemTotalPaise / 100,
+    sellerCommission: sellerCommissionPaise / 100,
+    sellerPayout: Math.max(0, itemTotalPaise - sellerCommissionPaise - sellerDeliveryDeduction * 100) / 100,
     total: (itemTotalPaise + deliveryFeePaise + platformFeePaise + multiStoreSurchargePaise) / 100,
   }
 }

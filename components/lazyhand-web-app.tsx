@@ -25,6 +25,20 @@ import { BottomNav, LoadingScreen } from './lazyhand/ui'
 type Stage = 'welcome' | 'location' | 'login' | 'otp' | 'signup' | 'loading' | 'app'
 type Tab = 'home' | 'categories' | 'orders' | 'profile'
 type Overlay = { kind: 'store'; shopId: string } | { kind: 'cart' } | { kind: 'payment' } | { kind: 'track'; orderId: string } | null
+type PreviewIdentity = {
+  phone: string
+  id: string
+  admin: boolean
+  profile: {
+    name: string
+    role: string
+    shopName: string
+    shopType: string
+    village: string
+    landmark: string
+    vehicle: string
+  } | null
+}
 
 const initialLocation: LocationState = { status: 'idle', area: '', message: '' }
 
@@ -132,7 +146,8 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const [pendingPolicyKeys, setPendingPolicyKeys] = useState<string[]>([])
   const [authenticatedUserId, setAuthenticatedUserId] = useState<string | null>(null)
   const [authenticatedPhone, setAuthenticatedPhone] = useState('')
-  const profileKey = authenticatedUserId ? ['lazyhand-profile', authenticatedUserId] as const : null
+  const [isOwner, setIsOwner] = useState(false)
+  const profileKey = authenticatedUserId && !previewMode ? ['lazyhand-profile', authenticatedUserId] as const : null
   const { data: savedProfile, error: profileError, isLoading: profileLoading } = useSWR(
     profileKey,
     ([, userId]) => fetchProfile(userId),
@@ -146,22 +161,71 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const [tab, setTab] = useState<Tab>('home')
   const [overlay, setOverlay] = useState<Overlay>(null)
 
+  const applyPreviewIdentity = useCallback((identity: PreviewIdentity) => {
+    const saved = identity.profile
+    const role: Role = saved?.role === 'shopkeeper' || saved?.role === 'rider' ? saved.role : 'customer'
+    setAuthenticatedUserId(identity.id)
+    setAuthenticatedPhone(identity.phone)
+    setIsOwner(Boolean(identity.admin))
+    setLoginPhone(identity.phone)
+    setProfile({
+      ...emptyProfile,
+      phone: identity.phone,
+      name: saved?.name || 'Preview user',
+      role,
+      shopName: saved?.shopName ?? '',
+      shopType: saved?.shopType ?? '',
+      village: saved?.village ?? '',
+      landmark: saved?.landmark ?? '',
+      vehicle: saved?.vehicle ?? '',
+    })
+    setActiveRole(role)
+    setTab('home')
+    setStage(current => current === 'welcome' ? 'app' : current)
+    setSessionReady(true)
+  }, [setProfile])
+
   useEffect(() => {
+    if (!previewMode) return
+    let active = true
+    void fetch('/api/preview/session', { cache: 'no-store' })
+      .then(response => response.ok ? response.json() as Promise<PreviewIdentity | { phone: null }> : null)
+      .then(identity => {
+        if (!active || !identity || !('id' in identity)) return
+        applyPreviewIdentity(identity)
+      })
+      .catch(() => undefined)
+      .finally(() => { if (active) setSessionReady(true) })
+    return () => { active = false }
+  }, [applyPreviewIdentity, previewMode])
+
+  useEffect(() => {
+    if (!authenticatedUserId || previewMode) return
+    void fetch('/api/admin/me', { cache: 'no-store' })
+      .then(response => response.ok ? response.json() as Promise<{ admin?: boolean }> : null)
+      .then(result => setIsOwner(Boolean(result?.admin)))
+      .catch(() => setIsOwner(false))
+  }, [authenticatedUserId, previewMode])
+
+  useEffect(() => {
+    // Preview uses /api/preview/session; Supabase is a placeholder there, so
+    // never construct the browser client (it throws when env is absent).
+    if (previewMode) return
     let active = true
     const supabase = createSupabaseClient()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setAuthenticatedUserId(session?.user.id ?? null)
       setAuthenticatedPhone(session?.user.phone?.replace(/^\+91/, '') ?? '')
-      if (!session) setSessionReady(true)
+      if (!session && !previewMode) setSessionReady(true)
     })
 
     void supabase.auth.getUser().then(({ data: { user } }: { data: { user: User | null } }) => {
       if (!active) return
       setAuthenticatedUserId(user?.id ?? null)
       setAuthenticatedPhone(user?.phone?.replace(/^\+91/, '') ?? '')
-      if (!user) setSessionReady(true)
+      if (!user && !previewMode) setSessionReady(true)
     }).catch(() => {
-      if (active) setSessionReady(true)
+      if (active && !previewMode) setSessionReady(true)
     })
 
     return () => {
@@ -171,7 +235,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   }, [])
 
   useEffect(() => {
-    if (!authenticatedUserId || profileLoading) return
+    if (previewMode || !authenticatedUserId || profileLoading) return
     if (profileError) {
       setSessionReady(true)
       return
@@ -182,14 +246,14 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     setTab('home')
     setStage(current => current === 'welcome' ? 'app' : current)
     setSessionReady(true)
-  }, [authenticatedPhone, authenticatedUserId, profileError, profileLoading, savedProfile, setProfile])
+  }, [authenticatedPhone, authenticatedUserId, previewMode, profileError, profileLoading, savedProfile, setProfile])
 
   useEffect(() => {
     if (authenticatedUserId && savedOrders) setOrders(savedOrders.orders)
   }, [authenticatedUserId, savedOrders, setOrders])
 
   useEffect(() => {
-    if (!authenticatedUserId || !profile.phone) return
+    if (previewMode || !authenticatedUserId || !profile.phone) return
     const timer = window.setTimeout(() => {
       void saveProfile(authenticatedUserId, profile).catch(() => undefined)
     }, 500)
@@ -199,6 +263,24 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   const area = profile.village || location.area || 'Set your location'
 
   const sendLoginCode = async (phone: string) => {
+    // Preview deployments use placeholder auth config, so phone verification is skipped
+    // there until a real Supabase project is wired up.
+    if (previewMode) {
+      const response = await fetch('/api/preview/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      })
+      const identity = await response.json().catch(() => null) as PreviewIdentity | { error?: string } | null
+      if (!response.ok || !identity || !('id' in identity)) {
+        throw new Error(identity && 'error' in identity && identity.error ? identity.error : 'Preview sign-in failed. Try again.')
+      }
+      setPendingProfile(null)
+      setPendingPolicyKeys([])
+      applyPreviewIdentity(identity)
+      enterApp(identity.profile?.role === 'shopkeeper' || identity.profile?.role === 'rider' ? identity.profile.role : 'customer')
+      return
+    }
     const { error } = await createSupabaseClient().auth.signInWithOtp({
       phone: `+91${phone}`,
       options: { shouldCreateUser: false },
@@ -218,6 +300,16 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
   }
 
   const sendSignupCode = async (newProfile: Profile, policyKeys: string[]) => {
+    // Preview only: keep the entered details and enter as a local guest.
+    if (previewMode) {
+      setProfile(newProfile)
+      setPendingProfile(null)
+      setPendingPolicyKeys(policyKeys)
+      setLoginPhone(newProfile.phone)
+      setSellerRequestSubmitted(newProfile.role === 'shopkeeper')
+      enterApp('customer')
+      return
+    }
     const { error } = await createSupabaseClient().auth.signInWithOtp({
       phone: `+91${newProfile.phone}`,
       options: { shouldCreateUser: true, data: { name: newProfile.name } },
@@ -370,9 +462,11 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
     )
 
   const logout = () => {
-    void createSupabaseClient().auth.signOut()
+    if (!previewMode) void createSupabaseClient().auth.signOut()
+    if (previewMode) void fetch('/api/preview/session', { method: 'DELETE' })
     setAuthenticatedUserId(null)
     setAuthenticatedPhone('')
+    setIsOwner(false)
     setSellerRequestSubmitted(false)
     setProfile({ ...emptyProfile })
     setOrders([])
@@ -417,6 +511,7 @@ function LazyHandShell({ previewMode }: { previewMode: boolean }) {
         onLogout={logout}
         onOrders={() => setTab('orders')}
         onEditAddress={editAddress}
+        isOwner={isOwner}
       />
     )
 

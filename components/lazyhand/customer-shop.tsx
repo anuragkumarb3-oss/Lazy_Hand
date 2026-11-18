@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { CakeSlice, Carrot, ChevronDown, ChevronRight, Clock, Cookie, CupSoda, House, IceCreamCone, MapPin, Milk, Package, Pizza, Sandwich, Search, Share2, ShoppingBag, ShoppingBasket, Soup, Star, Store, Utensils, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -94,7 +94,7 @@ export function ConflictSheet() {
 
 type DynamicCategory = { id: string; name: string; scope: 'general' | 'restaurant'; image_url: string | null; icon: string | null; display_order: number }
 
-type HomeSection = 'All' | 'Grocery & Kitchen' | 'Snacks & Drinks' | 'Fresh' | 'Daily essentials'
+type HomeSection = 'All' | 'Grocery & Kitchen' | 'Snacks & Drinks' | 'Fresh' | 'Essentials'
 type CatalogResponse = { categories: BrowserCategory[]; products: BrowserProduct[] }
 
 async function fetchCatalog(url = '/api/catalog'): Promise<CatalogResponse> {
@@ -108,12 +108,12 @@ function catalogUrlForArea(area: string) {
   return `/api/catalog?area=${encodeURIComponent(locality)}`
 }
 
-const homeSections: { name: HomeSection; categories: string[]; Icon: typeof Store }[] = [
-  { name: 'All', categories: [], Icon: Store },
-  { name: 'Grocery & Kitchen', categories: ['staples', 'instant'], Icon: Store },
-  { name: 'Snacks & Drinks', categories: ['snacks', 'drinks', 'bakery', 'icecream'], Icon: ShoppingBag },
-  { name: 'Fresh', categories: ['veg', 'dairy', 'eggs'], Icon: MapPin },
-  { name: 'Daily essentials', categories: ['staples', 'dairy', 'bakery', 'instant'], Icon: Clock },
+const homeSections: { name: HomeSection; label: string; categories: string[]; Icon: typeof Store }[] = [
+  { name: 'All', label: 'All', categories: [], Icon: Store },
+  { name: 'Grocery & Kitchen', label: 'Grocery', categories: ['staples', 'instant'], Icon: Store },
+  { name: 'Snacks & Drinks', label: 'Snacks', categories: ['snacks', 'drinks', 'bakery', 'icecream'], Icon: ShoppingBag },
+  { name: 'Fresh', label: 'Fresh', categories: ['veg', 'dairy', 'eggs'], Icon: MapPin },
+  { name: 'Essentials', label: 'Essentials', categories: ['staples', 'dairy', 'bakery', 'instant'], Icon: Clock },
 ]
 
 function categoryIdForName(name: string) {
@@ -134,27 +134,27 @@ function MoreProducts({ products, loading, area, onChangeLocation }: { products:
     .slice(0, 8)
 
   return (
-    <section aria-labelledby="more-products-heading" className="mt-8">
+    <section aria-labelledby="more-products-heading" className="mt-5">
       <div className="flex items-end justify-between gap-3">
-        <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="more-products-heading" className="mt-1 text-xl font-extrabold tracking-tight">More Products</h2></div>
-        <a href="/categories" className="pb-1 text-xs font-semibold text-brand-deep">See all <ChevronRight className="inline size-3.5" aria-hidden="true" /></a>
+        <div><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="more-products-heading" className="mt-0.5 text-lg font-extrabold tracking-tight">More Products</h2></div>
+        <a href="/categories" className="pb-0.5 text-[11px] font-semibold text-brand-deep">See all <ChevronRight className="inline size-3" aria-hidden="true" /></a>
       </div>
-      {featuredProducts.length ? <ul className="mt-3 grid grid-cols-2 gap-3">{featuredProducts.map(product => {
+      {featuredProducts.length ? <ul className="-mx-3.5 mt-2 flex snap-x gap-2.5 overflow-x-auto px-3.5 pb-2 [scrollbar-width:none]">{featuredProducts.map(product => {
         const shop = shopById[product.shopId]
         const canAdd = (!product.demoOnly || allowDemoOrders) && shop.open && product.inStock
         const quantity = cart.items[product.id] ?? 0
-        return <li key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
+        return <li key={product.id} className="flex w-[9.25rem] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
           <div className="relative aspect-square bg-[#F7F7F8]">
             {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
-            <span className={cn('absolute left-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold', product.demoOnly ? 'bg-white/95 text-brand-deep' : canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{product.demoOnly ? 'Test item' : canAdd ? 'Available' : 'Shop closed'}</span>
+            <span className={cn('absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold', product.demoOnly ? 'bg-white/95 text-brand-deep' : canAdd ? 'bg-white/95 text-[#15803D]' : 'bg-white/95 text-[#B91C1C]')}>{product.demoOnly ? 'Test item' : canAdd ? 'Available' : 'Shop closed'}</span>
           </div>
-          <div className="flex min-h-32 flex-1 flex-col p-2.5">
-            <p className="line-clamp-2 min-h-9 text-xs font-semibold leading-4">{product.name}</p>
-            {product.demoOnly && <p className="mt-0.5 text-[9px] font-semibold text-brand-deep">Preview sample · test checkout only</p>}
-            <p className="mt-1 truncate text-[10px] text-muted-ink">{shop.name}</p>
-            <div className="mt-auto flex items-center justify-between gap-2 pt-3">
-              <span className="text-sm font-extrabold">{rupee(product.price)}</span>
-              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-9 min-w-14 rounded-lg bg-brand px-3 text-[11px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={product.demoOnly ? `${quantity ? 'Add another ' : 'Add '}${product.name} for preview test checkout` : `${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
+          <div className="flex flex-1 flex-col p-2">
+            <p className="line-clamp-2 min-h-8 text-[11px] font-semibold leading-4">{product.name}</p>
+            {product.demoOnly && <p className="mt-0.5 text-[9px] font-semibold leading-3 text-brand-deep">Preview sample · test only</p>}
+            <p className="mt-0.5 truncate text-[10px] text-muted-ink">{shop.name}</p>
+            <div className="mt-auto flex items-center justify-between gap-1.5 pt-2">
+              <span className="text-[13px] font-extrabold">{rupee(product.price)}</span>
+              <button type="button" disabled={!canAdd} onClick={() => addItem(product.id)} className="min-h-8 min-w-12 rounded-lg bg-brand px-2 text-[10px] font-bold text-white transition hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-muted-ink" aria-label={product.demoOnly ? `${quantity ? 'Add another ' : 'Add '}${product.name} for preview test checkout` : `${quantity ? `Add another ${product.name}` : `Add ${product.name}`} to cart`}>
                 {product.demoOnly && !quantity ? 'TEST' : quantity ? `+ ${quantity}` : 'ADD'}
               </button>
             </div>
@@ -162,6 +162,264 @@ function MoreProducts({ products, loading, area, onChangeLocation }: { products:
         </li>
       })}</ul> : loading ? <p role="status" className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">Loading products…</p> : <div className="mt-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center"><p className="text-sm text-muted-ink">No in-stock products were found near {area}.</p><button type="button" onClick={onChangeLocation} className="mt-3 min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-brand-deep">Change delivery location</button></div>}
     </section>
+  )
+}
+
+function GroceryRail({ products }: { products: Product[] }) {
+  const { cart, addItem, removeItem, shopById, allowDemoOrders } = useLazyHand()
+  const essentials = products
+    .filter(product => product.inStock && shopById[product.shopId]?.open && (product.category === 'staples' || product.category === 'instant'))
+    .slice(0, 10)
+  if (!essentials.length) return null
+
+  return (
+    <section aria-labelledby="grocery-heading" className="mt-5">
+      <div className="flex items-end justify-between gap-3">
+        <div><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Everyday essentials</p><h2 id="grocery-heading" className="mt-0.5 text-lg font-extrabold tracking-tight">Grocery &amp; Kitchen</h2></div>
+        <a href="/categories" className="pb-0.5 text-[11px] font-semibold text-brand-deep">See all <ChevronRight className="inline size-3" aria-hidden="true" /></a>
+      </div>
+      <ul className="-mx-3.5 mt-2 flex snap-x gap-2.5 overflow-x-auto px-3.5 pb-2 [scrollbar-width:none]">
+        {essentials.map(product => {
+          const shop = shopById[product.shopId]
+          const canAdd = (!product.demoOnly || allowDemoOrders) && shop.open && product.inStock
+          return (
+            <li key={product.id} className="flex w-[9.25rem] shrink-0 snap-start flex-col overflow-hidden rounded-xl border border-[#EFE4D8] bg-white shadow-[0_5px_18px_-14px_#6B4A34]">
+              <div className="relative aspect-square bg-[#F7F7F8]">
+                {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center"><ProductTile category={product.category} size="sm" /></div>}
+              </div>
+              <div className="flex flex-1 flex-col p-2">
+                <p className="line-clamp-2 min-h-8 text-[11px] font-semibold leading-4">{product.name}</p>
+                <p className="mt-0.5 truncate text-[10px] text-muted-ink">{product.unit}</p>
+                <div className="mt-auto flex items-center justify-between gap-1.5 pt-2">
+                  <span className="text-[13px] font-extrabold">{rupee(product.price)}</span>
+                  <QtyControl qty={cart.items[product.id] ?? 0} onAdd={() => addItem(product.id)} onRemove={() => removeItem(product.id)} disabled={!canAdd} label={product.name} />
+                </div>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+function CategorySheet({ category, siblings, products, groupLabel, onSelect, onClose }: {
+  category: BrowserCategory
+  siblings: BrowserCategory[]
+  products: BrowserProduct[]
+  groupLabel: string
+  onSelect: (id: string) => void
+  onClose: () => void
+}) {
+  const { cart, addCatalogItem, removeItem, shopById, allowDemoOrders } = useLazyHand()
+  const [entered, setEntered] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [dragY, setDragY] = useState(0)
+  const dragYRef = useRef(0)
+  const dragStart = useRef<number | null>(null)
+  const railRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setEntered(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    railRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [category.id])
+
+  const requestClose = () => {
+    if (closing) return
+    setClosing(true)
+    setEntered(false)
+    window.setTimeout(onClose, 280)
+  }
+
+  const setDrag = (value: number) => {
+    dragYRef.current = value
+    setDragY(value)
+  }
+
+  const endDrag = () => {
+    if (dragYRef.current > 90) requestClose()
+    setDrag(0)
+    dragStart.current = null
+  }
+
+  const categoryProducts = products
+    .filter(product => product.category_id === category.id && product.product_type === 'retail')
+    .sort((first, second) => Number(second.is_available && second.stock > 0) - Number(first.is_available && first.stock > 0))
+
+  const addProduct = (item: BrowserProduct) => {
+    const shop = shopById[item.owner_id] ?? {
+      id: item.owner_id,
+      name: item.shop_name,
+      kind: 'Local store',
+      hours: item.shop_open ? 'Open now' : 'Closed',
+      opensAt: item.shop_opens_at ?? 'later',
+      rating: 0,
+      eta: item.delivery_estimate_min ? `${item.delivery_estimate_min}+ min` : 'Estimate unavailable',
+      open: item.shop_open,
+    }
+    addCatalogItem({
+      id: item.id,
+      shopId: item.owner_id,
+      name: item.name,
+      unit: item.unit,
+      price: Number(item.price),
+      category: categoryIdForName(category.name) ?? 'snacks',
+      inStock: item.is_available && item.stock > 0,
+      stock: item.stock,
+      imageUrl: item.images?.[0],
+      demoOnly: item.demo_only,
+    }, shop)
+  }
+
+  const thumbFor = (item: BrowserCategory) => item.image_url
+    ?? products.find(product => product.category_id === item.id && product.images?.[0])?.images[0]
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
+      <div
+        role="presentation"
+        aria-hidden="true"
+        onClick={requestClose}
+        className={cn('absolute inset-0 bg-ink/50 transition-opacity duration-300', entered && !closing ? 'opacity-100' : 'opacity-0')}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="category-sheet-heading"
+        className="relative w-full max-w-md transition-transform duration-300 ease-out sm:max-w-lg"
+        style={{
+          transform: closing || !entered ? 'translateY(100%)' : `translateY(${dragY}px)`,
+          transition: dragY > 0 && !closing ? 'none' : 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={requestClose}
+          aria-label="Close categories"
+          className="absolute -top-12 right-1 grid size-10 place-items-center rounded-full bg-white text-ink shadow-lg transition active:scale-95"
+        >
+          <X className="size-5" aria-hidden="true" />
+        </button>
+        <div className="flex h-[85svh] max-h-[85svh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl">
+          <div
+            className="shrink-0 touch-none border-b border-[#EFEFEF] px-4 pb-3 pt-2 shadow-[0_2px_8px_-6px_#111827]"
+            onTouchStart={event => { dragStart.current = event.touches[0]?.clientY ?? null; setDrag(0) }}
+            onTouchMove={event => {
+              if (dragStart.current === null) return
+              setDrag(Math.max(0, (event.touches[0]?.clientY ?? dragStart.current) - dragStart.current))
+            }}
+            onTouchEnd={endDrag}
+            onTouchCancel={() => { setDrag(0); dragStart.current = null }}
+          >
+            <span aria-hidden="true" className="mx-auto mb-2 block h-1 w-10 rounded-full bg-[#D8D8DC]" />
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Browse category</p>
+                <h2 id="category-sheet-heading" className="truncate text-lg font-extrabold tracking-tight">{groupLabel}</h2>
+              </div>
+              <span className="shrink-0 rounded-full bg-[#F4F4F5] px-2.5 py-1 text-[10px] font-semibold text-muted-ink">{categoryProducts.length} item{categoryProducts.length === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1">
+            <aside ref={railRef} aria-label="Category list" className="w-[22%] min-w-[82px] shrink-0 overflow-y-auto border-r border-[#EFEFEF] bg-[#FAFAFA] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <nav className="flex flex-col gap-0.5 p-1.5">
+                {siblings.map(item => {
+                  const isActive = item.id === category.id
+                  const thumb = thumbFor(item)
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-active={isActive ? 'true' : 'false'}
+                      aria-current={isActive ? 'true' : undefined}
+                      onClick={() => onSelect(item.id)}
+                      className={cn('relative flex min-h-[78px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-center transition', isActive ? 'bg-white text-ink shadow-sm' : 'text-muted-ink hover:bg-white/70')}
+                    >
+                      {isActive && <span aria-hidden="true" className="absolute inset-y-3 left-0 w-1 rounded-full bg-[#15803D]" />}
+                      <span className={cn('grid size-11 shrink-0 place-items-center overflow-hidden rounded-full border bg-[#FCE8E8]', isActive ? 'border-[#15803D]' : 'border-transparent')}>
+                        {thumb ? <img src={thumb} alt="" loading="lazy" className="size-full object-cover" /> : <span className="text-brand-deep"><CategoryIcon category={item} restaurant={false} /></span>}
+                      </span>
+                      <span className={cn('line-clamp-2 text-[10px] leading-3', isActive ? 'font-bold' : 'font-medium')}>{item.name}</span>
+                    </button>
+                  )
+                })}
+              </nav>
+            </aside>
+            <section aria-label={`${category.name} products`} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3 [scrollbar-width:thin]">
+              {categoryProducts.length ? (
+                <ul className="grid grid-cols-2 gap-2.5 pb-4">
+                  {categoryProducts.map(item => {
+                    const quantity = cart.items[item.id] ?? 0
+                    const price = Number(item.price)
+                    const mrp = Number(item.mrp ?? 0)
+                    const optionCount = item.variants?.length ?? 0
+                    const shop = shopById[item.owner_id]
+                    const rating = Number(item.rating ?? shop?.rating ?? 0)
+                    const canAdd = (!item.demo_only || allowDemoOrders) && item.shop_open && item.is_available && item.stock > 0
+                    return (
+                      <li key={item.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[#E9E9EC] bg-white shadow-[0_3px_12px_-10px_#111827]">
+                        <div className="relative aspect-square bg-[#F7F7F8]">
+                          {item.images?.[0] ? <img src={item.images[0]} alt={item.name} loading="lazy" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-[10px] font-semibold text-muted-ink">Product</div>}
+                          {item.stock <= 0 && <span className="absolute inset-x-0 bottom-0 bg-ink/75 px-2 py-1 text-center text-[9px] font-semibold text-white">Out of stock</span>}
+                        </div>
+                        <div className="flex flex-1 flex-col p-2">
+                          <p className="line-clamp-2 min-h-8 text-[11px] font-semibold leading-4">{item.name}</p>
+                          <p className="mt-0.5 truncate text-[9px] text-muted-ink">{item.unit || item.shop_name}</p>
+                          <div className="mt-1 flex items-center gap-1 text-[10px]">
+                            <Star className="size-3 fill-[#F59E0B] text-[#F59E0B]" aria-hidden="true" />
+                            <span className="font-semibold">{rating > 0 ? rating.toFixed(1) : 'New'}</span>
+                          </div>
+                          <div className="mt-auto pt-1.5">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-sm font-extrabold">{rupee(price)}</span>
+                              {mrp > price && <span className="text-[9px] text-muted-ink line-through">{rupee(mrp)}</span>}
+                            </div>
+                            {mrp > price && <p className="text-[9px] font-semibold text-[#15803D]">{Math.round(((mrp - price) / mrp) * 100)}% OFF</p>}
+                            <div className="mt-1.5">
+                              {quantity > 0 ? (
+                                <div className="flex h-8 items-center justify-between rounded-lg bg-[#15803D] px-1 text-white">
+                                  <button type="button" onClick={() => removeItem(item.id)} aria-label={`Remove one ${item.name}`} className="grid size-6 place-items-center text-base leading-none">−</button>
+                                  <span className="text-[11px] font-bold">{quantity}</span>
+                                  <button type="button" onClick={() => addProduct(item)} disabled={!canAdd} aria-label={`Add another ${item.name}`} className="grid size-6 place-items-center text-base leading-none disabled:opacity-40">+</button>
+                                </div>
+                              ) : (
+                                <button type="button" onClick={() => addProduct(item)} disabled={!canAdd} aria-label={`Add ${item.name}`} className="h-8 w-full rounded-lg border border-[#16A34A] bg-white text-[10px] font-bold uppercase tracking-wide text-[#15803D] transition hover:bg-[#F0FDF4] disabled:cursor-not-allowed disabled:border-[#D1D5DB] disabled:text-[#9CA3AF]">ADD</button>
+                              )}
+                            </div>
+                            {optionCount > 0 && <p className="mt-1 text-center text-[9px] text-muted-ink">{optionCount} option{optionCount === 1 ? '' : 's'}</p>}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <div className="mt-8 rounded-xl border border-dashed border-line bg-white p-5 text-center">
+                  <p className="text-sm font-semibold">No items in this category yet</p>
+                  <p className="mt-1 text-xs text-muted-ink">Tap another category on the left.</p>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -239,34 +497,35 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
     return homeCategories.filter(category => !section?.categories.length || section.categories.includes(categoryIdForName(category.name) ?? ''))
   }, [activeSection, homeCategories])
 
-  const visibleCategories = activeCategory
-    ? sectionCategories.filter(category => category.id === activeCategory)
-    : sectionCategories
+  const visibleCategories = sectionCategories
 
   const results = useMemo(() => {
     if (term) return products.filter(product => product.name.toLowerCase().includes(term) || categoryById[product.category].name.toLowerCase().includes(term))
-    if (!activeCategory && activeSection === 'All') return null
+    if (activeSection === 'All') return null
     const selectedNames = visibleCategories.map(category => category.name.toLowerCase())
     return products.filter(product => selectedNames.some(name => categoryById[product.category].name.toLowerCase() === name))
-  }, [activeCategory, activeSection, products, term, visibleCategories])
+  }, [activeSection, products, term, visibleCategories])
+
+  const sheetCategory = activeCategory ? homeCategories.find(category => category.id === activeCategory) ?? null : null
+  const sheetSiblings = sheetCategory && sectionCategories.some(category => category.id === sheetCategory.id) ? sectionCategories : homeCategories
 
   return (
     <div className="pb-40">
-      <header className="bg-gradient-to-b from-[#FECACA] via-[#FEE2E2] to-[#FFF5F5] px-4 pb-5 pt-[max(env(safe-area-inset-top),16px)] text-ink">
+      <header className="bg-gradient-to-b from-[#FECACA] via-[#FEE2E2] to-[#FFF5F5] px-3.5 pb-3 pt-[max(env(safe-area-inset-top),12px)] text-ink">
         <div className="mx-auto max-w-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-ink/75">{sortedShops.some(shop => shop.open) ? 'Local shops are ready' : 'Please come back when your store opens'}</p>
-              <h1 className="mt-1 text-3xl font-extrabold leading-tight tracking-tight">{sortedShops.some(shop => shop.open) ? 'Shop nearby' : 'Store closed'}</h1>
-              <button type="button" onClick={onChangeLocation} className="mt-1 flex max-w-full items-center gap-1 text-left text-base font-medium" aria-label={`Delivering to ${area}. Change location`}>
+              <p className="text-[10.5px] font-semibold text-ink/75">{sortedShops.some(shop => shop.open) ? 'Local shops are ready' : 'Please come back when your store opens'}</p>
+              <h1 className="mt-0.5 text-[26px] font-extrabold leading-tight tracking-tight">{sortedShops.some(shop => shop.open) ? 'Shop nearby' : 'Store closed'}</h1>
+              <button type="button" onClick={onChangeLocation} className="mt-0.5 flex max-w-full items-center gap-1 text-left text-[13px] font-medium" aria-label={`Delivering to ${area}. Change location`}>
                 <span className="truncate">{area}</span>
-                <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+                <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
               </button>
             </div>
-            <a href="#profile" aria-label="Your profile" className="mt-5 grid size-12 shrink-0 place-items-center rounded-full border border-white bg-white text-ink shadow-sm"><span className="text-xl font-bold">U</span></a>
+            <a href="#profile" aria-label="Your profile" className="mt-2.5 grid size-10 shrink-0 place-items-center rounded-full border border-white bg-white text-ink shadow-sm"><span className="text-base font-bold">U</span></a>
           </div>
-          <div className="mt-4 flex h-12 items-center gap-3 rounded-2xl border border-[#E9E3D5] bg-white px-4 text-muted-ink shadow-sm">
-            <Search className="size-5 shrink-0" aria-hidden="true" />
+          <div className="mt-2.5 flex h-10 items-center gap-2 rounded-xl border border-[#E9E3D5] bg-white px-3 text-muted-ink shadow-sm">
+            <Search className="size-4 shrink-0" aria-hidden="true" />
             <label htmlFor="home-search" className="sr-only">Search products</label>
             <input
               id="home-search"
@@ -276,7 +535,7 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
               placeholder={`Search "${searchSuggestions[suggestionIndex]}"...`}
-              className="search-placeholder-fade h-full min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-muted-ink/70"
+              className="search-placeholder-fade h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted-ink/70"
             />
             {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X className="size-4" aria-hidden="true" /></button>}
           </div>
@@ -284,19 +543,19 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
       </header>
 
       <nav aria-label="Shop sections" className="sticky top-0 z-[5] border-b border-line bg-[#FFF5F5]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-md gap-5 overflow-x-auto px-4 [scrollbar-width:none]">
-          {homeSections.map(({ name, Icon }) => (
-            <button key={name} type="button" onClick={() => { setActiveSection(name); setActiveCategory(null) }} aria-pressed={activeSection === name} className={cn('relative flex min-h-[76px] shrink-0 flex-col items-center justify-center gap-1.5 px-1 text-[11px] font-medium transition', activeSection === name ? 'text-ink' : 'text-muted-ink')}>
-              <Icon className={cn('size-6', activeSection === name && 'fill-[#DC2626]/20')} strokeWidth={activeSection === name ? 2.4 : 1.8} aria-hidden="true" />
-              <span className="max-w-24 truncate">{name}</span>
-              {activeSection === name && <span className="absolute inset-x-0 bottom-0 h-1 rounded-t-full bg-ink" />}
+        <div className="mx-auto flex max-w-md justify-between gap-4 overflow-x-auto px-3.5 [scrollbar-width:none]">
+          {homeSections.map(({ name, label, Icon }) => (
+            <button key={name} type="button" onClick={() => { setActiveSection(name); setActiveCategory(null) }} aria-pressed={activeSection === name} className={cn('relative flex min-h-[58px] shrink-0 flex-col items-center justify-center gap-1 px-1 text-[10.5px] font-medium transition', activeSection === name ? 'text-ink' : 'text-muted-ink')}>
+              <Icon className={cn('size-5', activeSection === name && 'fill-[#DC2626]/20')} strokeWidth={activeSection === name ? 2.4 : 1.8} aria-hidden="true" />
+              <span className="max-w-24 truncate">{label}</span>
+              {activeSection === name && <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-t-full bg-ink" />}
             </button>
           ))}
         </div>
       </nav>
 
-      <main className="mx-auto max-w-md px-4 pb-8">
-        <p role={catalogError ? 'alert' : 'status'} className="pt-3 text-[11px] leading-4 text-muted-ink">{catalogError ? 'Live shop availability could not be loaded. Please try again shortly.' : 'Shop status and delivery estimates update from each shop’s saved hours and settings.'}</p>
+      <main className="mx-auto max-w-md px-3.5 pb-8">
+        <p role={catalogError ? 'alert' : 'status'} className={catalogError ? 'pt-2 text-[11px] leading-4 text-[#B91C1C]' : 'sr-only'}>{catalogError ? 'Live shop availability could not be loaded. Please try again shortly.' : 'Shop status and delivery estimates update from each shop’s saved hours and settings.'}</p>
         {term ? (
           <section aria-labelledby="results-heading" className="mt-5">
             <h2 id="results-heading" className="text-xl font-bold">{results?.length ?? 0} result{results?.length === 1 ? '' : 's'}<span className="font-normal text-muted-ink"> for &ldquo;{query.trim()}&rdquo;</span></h2>
@@ -304,31 +563,33 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
           </section>
         ) : (
           <>
-            <section aria-labelledby="bestsellers-heading" className="mt-5">
+            <section aria-labelledby="bestsellers-heading" className="mt-3">
               <div className="flex items-end justify-between gap-3">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Picked for your neighborhood</p><h2 id="bestsellers-heading" className="mt-1 text-xl font-extrabold tracking-tight">Bestsellers</h2></div>
-                <a href="/categories" className="pb-1 text-xs font-semibold text-brand-deep">All categories <ChevronRight className="inline size-3.5" aria-hidden="true" /></a>
+                <div><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Picked for your neighborhood</p><h2 id="bestsellers-heading" className="mt-0.5 text-lg font-extrabold tracking-tight">Bestsellers</h2></div>
+                <a href="/categories" className="pb-0.5 text-[11px] font-semibold text-brand-deep">All categories <ChevronRight className="inline size-3" aria-hidden="true" /></a>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2.5">
-                {sectionCategories.slice(0, 9).map(category => {
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {sectionCategories.slice(0, 6).map(category => {
                   const categoryId = categoryIdForName(category.name)
                   const matchedProducts = catalog?.products
                     .filter(product => product.category_id === category.id && product.product_type === 'retail' && product.is_available && product.stock > 0)
                     .sort((first, second) => Number(second.shop_open) - Number(first.shop_open)) ?? []
-                  const tileProducts = matchedProducts.filter(product => product.images?.[0]).slice(0, 4)
+                  const tileImages = Array.from(new Set(matchedProducts.flatMap(product => product.images ?? []).filter(Boolean))).slice(0, 4)
                   return (
-                    <button key={category.id} type="button" aria-pressed={activeCategory === category.id} onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)} className={cn('flex min-w-0 flex-col items-center rounded-[1.35rem] border p-2 text-center transition active:scale-[0.98]', activeCategory === category.id ? 'border-brand bg-[#FFF5E7] shadow-md' : 'border-[#F0EFF3] bg-[#F5F5F8]')}>
-                      <span className={cn('relative grid aspect-square w-full gap-1 overflow-hidden rounded-[1rem] bg-white p-1', tileProducts.length === 1 ? 'grid-cols-1 grid-rows-1' : tileProducts.length === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-2 grid-rows-2')}>
-                        {tileProducts.length ? tileProducts.map(product => <span key={product.id} className="min-w-0 overflow-hidden rounded-[0.8rem] bg-white"><img src={product.images[0]} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 row-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
+                    <button key={category.id} type="button" aria-pressed={activeCategory === category.id} onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)} className={cn('flex min-w-0 flex-col items-center rounded-2xl border p-1.5 text-center transition active:scale-[0.98]', activeCategory === category.id ? 'border-brand bg-[#FFF5E7] shadow-md' : 'border-[#F0EFF3] bg-[#F5F5F8]')}>
+                      <span className={cn('relative grid aspect-square w-full gap-1 overflow-hidden rounded-[1rem] bg-white p-1', tileImages.length === 1 ? 'grid-cols-1 grid-rows-1' : tileImages.length === 2 ? 'grid-cols-2 grid-rows-1' : 'grid-cols-2 grid-rows-2')}>
+                        {tileImages.length ? tileImages.map((image, index) => <span key={`${image}-${index}`} className="min-w-0 overflow-hidden rounded-[0.8rem] bg-white"><img src={image} alt="" loading="lazy" className="size-full object-cover" /></span>) : category.image_url ? <img src={category.image_url} alt="" className="col-span-2 size-full rounded-[0.8rem] object-cover" /> : <span className="col-span-2 row-span-2 grid place-items-center rounded-[0.8rem] bg-peach text-brand-deep"><CategoryIcon category={category} restaurant={false} /></span>}
                         {matchedProducts.length > 4 && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E5E7EB] bg-white px-2.5 py-1 text-[10px] font-semibold text-muted-ink shadow-sm">+{matchedProducts.length - 4} more</span>}
                       </span>
-                      <span className="mt-3 line-clamp-2 min-h-9 text-[13px] font-semibold leading-[1.15rem]">{category.name}</span>
+                      <span className="mt-1.5 line-clamp-2 min-h-7 text-[11.5px] font-semibold leading-[0.9rem]">{category.name}</span>
                     </button>
                   )
                 })}
                 {sectionCategories.length === 0 && <p className="col-span-3 rounded-2xl border border-dashed border-line bg-white p-5 text-center text-sm text-muted-ink">Categories for this section will appear here as they are added to the catalog.</p>}
               </div>
             </section>
+
+            <GroceryRail products={products} />
 
             {results && results.length > 0 && <section aria-labelledby="collection-heading" className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brand-deep">Fresh picks</p><h2 id="collection-heading" className="mt-1 text-xl font-extrabold tracking-tight">{activeCategory ? homeCategories.find(category => category.id === activeCategory)?.name : activeSection === 'All' ? 'Grocery & Kitchen' : activeSection}</h2></div><a href="/categories" className="text-xs font-semibold text-brand-deep">See all</a></div><ul className="mt-3 flex flex-col gap-2">{results.map(product => <ProductRow key={product.id} product={product} showShop />)}</ul></section>}
 
@@ -337,12 +598,22 @@ export function CustomerHome({ area, onChangeLocation }: { area: string; onChang
           </>
         )}
       </main>
+      {sheetCategory && (
+        <CategorySheet
+          category={sheetCategory}
+          siblings={sheetSiblings}
+          products={catalog?.products ?? []}
+          groupLabel={activeSection === 'All' ? 'All categories' : activeSection}
+          onSelect={setActiveCategory}
+          onClose={() => setActiveCategory(null)}
+        />
+      )}
     </div>
   )
 }
 
 type BrowserCategory = { id: string; name: string; scope: 'general' | 'restaurant'; parent_id: string | null; image_url: string | null; icon: string | null; display_order: number }
-type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[]; shop_open: boolean; shop_opens_at: string | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null; shop_timezone: string; demo_only?: boolean }
+type BrowserProduct = { id: string; owner_id: string; shop_name: string; category_id: string; product_type: 'retail' | 'restaurant'; name: string; description: string; unit: string; price: number; mrp?: number | null; rating?: number | null; stock: number; images: string[]; variants: { name?: string }[]; is_vegetarian: boolean | null; is_available: boolean; addons: { name?: string }[]; shop_open: boolean; shop_opens_at: string | null; delivery_estimate_min: number | null; delivery_estimate_max: number | null; shop_timezone: string; demo_only?: boolean }
 
 const categoryIcons: Record<string, LucideIcon> = {
   'cake-slice': CakeSlice, carrot: Carrot, cookie: Cookie, 'cup-soda': CupSoda, house: House,

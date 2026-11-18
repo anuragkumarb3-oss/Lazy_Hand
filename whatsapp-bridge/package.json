@@ -1,0 +1,14 @@
+{
+  "name": "lazyhand-whatsapp-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LazyHand WhatsApp sender bridge: admin QR pairing + signed server-to-server sends",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "qrcode": "1.5.4"
+  }
+}

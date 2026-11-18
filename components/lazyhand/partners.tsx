@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import useSWR from 'swr'
 import { Banknote, Bike, Calculator, Check, ClipboardList, IndianRupee, MapPin, MessageCircle, Package, Plus, Power, Search, Store, UserRound, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client'
 import { billFor, categories, DEFAULT_DELIVERY_DISTANCE_KM, DELIVERY_SLABS, PLATFORM_FEE_SLABS, deliverySlabFor, rupee, type CategoryId, type Order, type Product } from './data'
 import { useLazyHand } from './store'
 import { BottomNav, PrimaryButton, SecondaryButton, StatusPill, Toggle } from './ui'
+import { TrackingMap } from './tracking-map'
+import { LiveTrackingPanel } from './live-tracking'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 type ShopHour = { day_of_week: number; opens_at: string | null; closes_at: string | null; is_closed: boolean }
@@ -72,8 +74,8 @@ function Empty({ Icon, title, detail }: { Icon: typeof Package; title: string; d
   )
 }
 
-export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMode?: boolean }) {
-  const { profile } = useLazyHand()
+export function ShopkeeperDashboard({ onExit, previewMode }: { onExit: () => void; previewMode?: boolean }) {
+  const { profile, orders: localOrders, setOrderStatus: setLocalOrderStatus } = useLazyHand()
   const [tab, setTab] = useState<'orders' | 'products' | 'earnings' | 'account'>('orders')
   const [productQuery, setProductQuery] = useState('')
   const [productAvailability, setProductAvailability] = useState('all')
@@ -86,16 +88,22 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMod
   const { data: sellerData, error: sellerDataError, isLoading: sellerDataLoading, mutate: refreshSellerData } = useSWR('/api/seller', async () => {
     const response = await fetch('/api/seller')
     if (!response.ok) throw new Error('Seller workspace could not be loaded.')
-    return response.json() as Promise<{ products: Array<{ id: string; category_id: string; name: string; unit: string; price: number | string; stock: number; is_available: boolean; low_stock_threshold: number; images: string[] }>; categories: Array<{ id: string; name: string }>; orders: Array<{ id: string; lines: Order['lines']; item_total: number | string; delivery_fee: number | string; platform_fee: number | string; seller_delivery_deduction: number | string; seller_payout: number | string; total: number | string; payment: 'cod'; status: Order['status']; customer_name: string; address: string; rider_name: string | null; placed_at: string }> }>
-  })
-  const shopOrders: Order[] = (sellerData?.orders ?? []).map(order => ({
+    return response.json() as Promise<{ products: Array<{ id: string; category_id: string; name: string; unit: string; price: number | string; stock: number; is_available: boolean; low_stock_threshold: number; images: string[] }>; categories: Array<{ id: string; name: string }>; orders: Array<{ id: string; lines: Order['lines']; item_total: number | string; delivery_fee: number | string; platform_fee: number | string; seller_delivery_deduction: number | string; seller_commission: number | string; seller_payout: number | string; total: number | string; payment: 'cod'; status: Order['status']; customer_name: string; address: string; rider_name: string | null; rider_phone: string | null; customer_phone: string | null; placed_at: string }> }>
+  }, { refreshInterval: 15000 })
+  const realOrders: Order[] = (sellerData?.orders ?? []).map(order => ({
     id: order.id, shopId: '', lines: order.lines, itemTotal: Number(order.item_total), deliveryFee: Number(order.delivery_fee),
     platformFee: Number(order.platform_fee), deliveryDistanceKm: 0, riderPayout: 0,
-    sellerDeliveryDeduction: Number(order.seller_delivery_deduction), sellerPayout: Number(order.seller_payout),
+    sellerDeliveryDeduction: Number(order.seller_delivery_deduction), sellerCommission: Number(order.seller_commission), sellerPayout: Number(order.seller_payout),
     total: Number(order.total), payment: order.payment, status: order.status,
     placedAt: order.placed_at, customerName: order.customer_name,
     address: order.address, riderName: order.rider_name ?? undefined,
+    riderPhone: order.rider_phone ?? undefined, customerPhone: order.customer_phone ?? undefined,
   }))
+  // In the preview there is no real shop, so orders placed from the demo
+  // catalog (TEST… ids) never reach the DB. Surface them here so the
+  // customer → seller → earnings flow is demonstrable end to end.
+  const demoOrders = localOrders.filter(order => order.id.startsWith('TEST'))
+  const shopOrders: Order[] = previewMode ? [...demoOrders, ...realOrders] : realOrders
   const incoming = shopOrders.filter(order => order.status === 'placed')
   const packing = shopOrders.filter(order => order.status === 'accepted')
   const ready = shopOrders.filter(order => order.status === 'ready')
@@ -127,6 +135,10 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMod
   })
   const updateOrderStatus = async (orderId: string, status: Order['status']) => {
     setActionError('')
+    if (orderId.startsWith('TEST')) {
+      setLocalOrderStatus(orderId, status)
+      return
+    }
     const response = await fetch('/api/seller', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, status }) })
     if (!response.ok) {
       setActionError('Order status could not be updated. Refresh and try again.')
@@ -178,6 +190,24 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMod
                   <p className="mt-3 text-xs leading-5 text-muted-ink">Payment status: COD · {order.status === 'delivered' ? 'completed' : 'collection status is recorded with delivery'}</p>
                   {order.status === 'placed' && <div className="mt-3 flex gap-2"><SecondaryButton onClick={() => void updateOrderStatus(order.id, 'rejected')} className="h-11 text-sm text-[#B91F1F]">Reject</SecondaryButton><PrimaryButton onClick={() => void updateOrderStatus(order.id, 'accepted')} className="h-11 text-sm">Accept order</PrimaryButton></div>}
                   {order.status === 'accepted' && <PrimaryButton onClick={() => void updateOrderStatus(order.id, 'ready')} className="mt-3 h-11">Mark ready for pickup</PrimaryButton>}
+                  {order.riderName && ['accepted', 'ready', 'picked'].includes(order.status) && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#EFF6FF] px-3 py-2.5 text-xs">
+                      <span><strong className="text-[#1E3A8A]">Rider {order.riderName}</strong>{order.riderPhone ? <span className="text-muted-ink"> · +91 {order.riderPhone}</span> : null}</span>
+                      {order.riderPhone ? <a href={`tel:${order.riderPhone}`} className="rounded-lg border border-[#BFDBFE] bg-white px-2.5 py-1.5 font-semibold text-[#1E3A8A]">Call rider</a> : null}
+                    </div>
+                  )}
+                  {!order.riderName && ['accepted', 'ready'].includes(order.status) && (
+                    <div className="mt-3 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2.5 text-xs leading-5 text-[#92400E]">
+                      No rider has accepted yet. You can arrange your own delivery partner or deliver this order yourself.
+                      {order.customerPhone ? <> <a href={`tel:${order.customerPhone}`} className="font-semibold underline underline-offset-2">Call customer</a></> : null}
+                    </div>
+                  )}
+                  {['accepted', 'ready', 'picked'].includes(order.status) && (
+                    <div className="mt-3">
+                      {order.status === 'picked' && <p className="mb-2 rounded-lg bg-[#F0FDF4] px-3 py-2 text-xs font-semibold text-[#166534]">Rider collected this order. Live rider location is hidden from sellers after pickup.</p>}
+                      <LiveTrackingPanel orderId={order.id} height={180} />
+                    </div>
+                  )}
                 </article>)}
               </div>
             </section>
@@ -208,9 +238,9 @@ export function ShopkeeperDashboard({ onExit }: { onExit: () => void; previewMod
         {tab === 'earnings' && (
           <section className="flex flex-col gap-4" aria-labelledby="earnings-heading">
             <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 id="earnings-heading" className="text-xl font-bold">Earnings</h2><p className="mt-1 text-sm text-muted-ink">Actual order totals, not profit estimates.</p></div><label className="flex flex-col gap-1 text-xs font-medium text-muted-ink">Period<select value={earningsRange} onChange={event => setEarningsRange(event.target.value as 'today' | '7d' | '30d')} className="h-10 rounded-lg border border-line bg-white px-3 text-sm text-ink"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label></div>
-            <dl className="grid grid-cols-2 gap-3"><Stat label="Gross sales" value={rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))} /><Stat label="Seller earnings" value={rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))} /><Stat label="Platform fees" value={rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))} /><Stat label="Settlements" value="Not configured" /></dl>
+            <dl className="grid grid-cols-2 gap-3"><Stat label="Gross sales" value={rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))} /><Stat label="Seller earnings" value={rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))} /><Stat label="Platform fee (5%)" value={rupee(periodOrders.reduce((total, order) => total + Number(order.seller_commission), 0))} /><Stat label="Settlements" value="Not configured" /></dl>
             <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="sales-chart-heading"><h3 id="sales-chart-heading" className="text-sm font-bold">Daily gross sales</h3><div className="mt-4 flex h-36 items-end gap-2" role="img" aria-label="Daily gross sales chart for the selected period">{salesByDay.map(day => <div key={day.key} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1 text-center"><span className="truncate text-[10px] font-medium text-muted-ink">{day.total ? rupee(day.total) : '—'}</span><div className="min-h-1 rounded-t-md bg-brand" style={{ height: `${Math.max(4, (day.total / Math.max(1, ...salesByDay.map(item => item.total))) * 80)}%` }} /><span className="text-[10px] text-muted-ink">{day.label}</span></div>)}</div></section>
-            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Order financial breakdown</h3><dl className="mt-3 flex flex-col gap-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-muted-ink">Gross product sales</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fees recorded</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.platform_fee), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery deductions</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_delivery_deduction), 0))}</dd></div><div className="flex justify-between gap-3 border-t border-line pt-3"><dt className="font-semibold">Net seller earnings recorded</dt><dd className="font-bold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))}</dd></div><div className="text-xs leading-5 text-muted-ink">Discounts, refunds and adjustments are not recorded in the current order schema; they are excluded. Platform fees are order fees, not seller commission.</div></dl></section>
+            <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Order financial breakdown</h3><dl className="mt-3 flex flex-col gap-3 text-sm"><div className="flex justify-between gap-3"><dt className="text-muted-ink">Gross product sales</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.item_total), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee recorded (5% of items)</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_commission), 0))}</dd></div><div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery deductions</dt><dd className="font-semibold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_delivery_deduction), 0))}</dd></div><div className="flex justify-between gap-3 border-t border-line pt-3"><dt className="font-semibold">Net seller earnings recorded</dt><dd className="font-bold">{rupee(periodOrders.reduce((total, order) => total + Number(order.seller_payout), 0))}</dd></div><div className="text-xs leading-5 text-muted-ink">Discounts, refunds and adjustments are not recorded in the current order schema; they are excluded. A 5% platform fee is deducted from the item subtotal on each order; it is not added to the customer's bill.</div></dl></section>
             <section className="rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4"><h3 className="text-sm font-bold text-[#9A3412]">Settlement history not configured</h3><p className="mt-1 text-sm leading-5 text-[#9A3412]">No payout ledger or bank settlement records are available in this workspace, so settled and pending amounts cannot be verified. Connect and verify seller bank details and enable the settlement ledger before showing payouts.</p></section>
             <section className="rounded-2xl border border-line bg-white p-4"><h3 className="text-sm font-bold">Recent orders</h3>{periodOrders.length ? <ul className="mt-2 divide-y divide-line">{periodOrders.slice(0, 8).map(order => <li key={order.id} className="flex items-center justify-between gap-3 py-3 text-sm"><span className="min-w-0 truncate">#{order.id} · {order.status}</span><strong>{rupee(Number(order.seller_payout))}</strong></li>)}</ul> : <p className="mt-2 text-sm text-muted-ink">No completed financial activity for this period.</p>}</section>
             <button type="button" onClick={() => setShowProfitCalculator(value => !value)} aria-expanded={showProfitCalculator} className="flex min-h-11 items-center justify-between rounded-xl border border-line bg-white px-4 text-sm font-semibold"><span className="flex items-center gap-2"><Calculator className="size-4 text-brand" aria-hidden="true" /> Product profit calculator</span><span className="text-xs text-muted-ink">{showProfitCalculator ? 'Hide' : 'Show'}</span></button>
@@ -235,9 +265,10 @@ function SmartProfitCalculator() {
   const cost = Math.max(0, Number(buyingCost) || 0)
   const productProfit = sale - cost
   const bill = billFor(sale, distanceKm, shopSelfDelivers)
-  const sellerTakeHome = productProfit - bill.sellerDeliveryDeduction
+  const sellerTakeHome = productProfit - bill.sellerCommission - bill.sellerDeliveryDeduction
+  const sellerReceives = Math.max(0, sale - bill.sellerCommission - bill.sellerDeliveryDeduction)
   const deliveryContribution = bill.deliveryFee + bill.sellerDeliveryDeduction - bill.riderPayout
-  const lazyHandRevenue = deliveryContribution + bill.platformFee
+  const lazyHandRevenue = deliveryContribution + bill.sellerCommission
   const riderTransfer = Math.max(0, lazyHandRevenue)
   const marginPercent = sale > 0 ? (sellerTakeHome / sale) * 100 : 0
 
@@ -245,7 +276,7 @@ function SmartProfitCalculator() {
     <section className="mt-4 flex flex-col gap-3 pb-4" aria-labelledby="profit-calculator-heading">
       <div>
         <h2 id="profit-calculator-heading" className="text-lg font-bold">Smart Profit Calculator</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-ink">Preview customer charges, rider pay and LazyHand revenue separately. No seller commission.</p>
+        <p className="mt-1 text-xs leading-5 text-muted-ink">Preview customer charges, the 5% seller platform fee, rider pay and LazyHand revenue separately.</p>
       </div>
 
       <div className="rounded-2xl border border-line bg-white p-4">
@@ -290,10 +321,11 @@ function SmartProfitCalculator() {
         </div>
         <dl className="mt-3 flex flex-col gap-2.5 text-sm">
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Product profit</dt><dd className="font-semibold">{rupee(productProfit)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee (5% of item subtotal)</dt><dd className="font-semibold">−{rupee(bill.sellerCommission)}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller delivery contribution</dt><dd className="font-semibold">−{rupee(bill.sellerDeliveryDeduction)}</dd></div>
           <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2.5 font-bold"><dt>Seller take-home</dt><dd>{rupee(sellerTakeHome)} <span className="text-xs font-medium text-muted-ink">({marginPercent.toFixed(1)}%)</span></dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Customer pays</dt><dd className="font-semibold">{rupee(bill.total)}{shopSelfDelivers && <span className="text-xs font-normal text-muted-ink"> · free delivery</span>}</dd></div>
-          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Platform fee</dt><dd className="font-semibold">{rupee(bill.platformFee)}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-muted-ink">Seller platform fee (5%)</dt><dd className="font-semibold">{rupee(bill.sellerCommission)}</dd></div>
           <div className="flex justify-between gap-3"><dt className="text-muted-ink">Delivery contribution</dt><dd className="font-semibold">{rupee(deliveryContribution)}</dd></div>
           <div className="flex justify-between gap-3 border-t border-dashed border-line pt-2 font-bold"><dt>LazyHand total revenue</dt><dd className="text-brand-deep">{rupee(lazyHandRevenue)}</dd></div>
           <div className="flex justify-between gap-3 text-xs text-muted-ink"><dt>Delivery fee − rider payout</dt><dd>{rupee(bill.deliveryFee)} − {rupee(bill.riderPayout)}</dd></div>
@@ -313,8 +345,8 @@ function SmartProfitCalculator() {
         {shopSelfDelivers ? (
           <ol className="mt-3 flex flex-col gap-2 text-xs leading-5 text-white/85">
             <li className="flex justify-between gap-3"><span>Customer pays shop</span><strong>{rupee(bill.total)}</strong></li>
-            <li className="flex justify-between gap-3"><span>Shop keeps item value</span><strong>{rupee(sale)}</strong></li>
-            <li className="flex justify-between gap-3 border-t border-white/15 pt-2"><span>LazyHand platform fee</span><strong>{rupee(bill.platformFee)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Shop keeps item value after 5% fee</span><strong>{rupee(sellerReceives)}</strong></li>
+            <li className="flex justify-between gap-3 border-t border-white/15 pt-2"><span>LazyHand platform fee (5%)</span><strong>{rupee(bill.sellerCommission)}</strong></li>
             <li className="flex justify-between gap-3"><span>Rider payout</span><strong>{rupee(0)}</strong></li>
           </ol>
         ) : (
@@ -322,7 +354,7 @@ function SmartProfitCalculator() {
             <li className="flex justify-between gap-3"><span>Rider collects from customer</span><strong>{rupee(bill.total)}</strong></li>
             <li className="flex justify-between gap-3"><span>Rider keeps distance-based payout</span><strong>−{rupee(bill.riderPayout)}</strong></li>
             <li className="flex justify-between gap-3 border-t border-white/15 pt-2"><span>Rider remits delivery spread + platform fee</span><strong>{rupee(riderTransfer)}</strong></li>
-            <li className="flex justify-between gap-3"><span>Seller receives item value</span><strong>{rupee(sale)}</strong></li>
+            <li className="flex justify-between gap-3"><span>Seller receives item value after 5% fee</span><strong>{rupee(sellerReceives)}</strong></li>
             <li className="flex justify-between gap-3 border-t border-white/15 pt-2 font-bold text-white"><span>LazyHand revenue before costs</span><strong>{rupee(lazyHandRevenue)}</strong></li>
           </ol>
         )}
@@ -460,19 +492,142 @@ function ProductEditor({ initial, onSave, onCancel }: { initial?: Product; onSav
   )
 }
 
+type RiderApiOrder = {
+  id: string
+  shopId: string
+  shopName: string
+  shopVillage: string
+  shopPhone: string
+  status: Order['status']
+  address: string
+  customerName: string
+  customerPhone: string
+  total: number
+  riderPayout: number
+  riderName?: string
+  placedAt: string
+  pickup: { latitude: number; longitude: number } | null
+  drop: { latitude: number; longitude: number } | null
+  routeDistanceKm: number | null
+  routeDurationMinutes: number | null
+}
+
+function mapsDirections(destination: { latitude: number; longitude: number }) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}&travelmode=driving`
+}
+
+type RiderTracking = {
+  tracking: {
+    route: [number, number][] | null
+    etaMinutes: number | null
+    etaTarget: 'pickup' | 'drop' | null
+    stale: boolean
+  }
+}
+
+async function fetchRiderTracking(url: string): Promise<RiderTracking> {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error('Route unavailable.')
+  return response.json() as Promise<RiderTracking>
+}
+
 export function RiderDashboard({ onExit }: { onExit: () => void }) {
-  const { orders, shopById, profile, setOrderStatus, verifyOrderOtp, confirmOrderPayment, remitOrderToSeller } = useLazyHand()
+  const { profile } = useLazyHand()
   const [tab, setTab] = useState<'trips' | 'earnings' | 'account'>('trips')
   const [online, setOnline] = useState(true)
-  const [handoffCode, setHandoffCode] = useState('')
-  const [handoffError, setHandoffError] = useState('')
-  const riderName = profile.role === 'rider' && profile.name ? profile.name : 'Sunil (you)'
-  const available = orders.filter(o => o.status === 'ready' && !o.riderName)
-  const active = orders.filter(o => o.riderName === riderName && ['ready', 'picked'].includes(o.status))
-  const completed = orders.filter(o => o.riderName === riderName && o.status === 'delivered')
-  const pendingSellerDeposits = completed.filter(order => order.paymentConfirmed && !order.cashRemittedToSeller)
+  const [busy, setBusy] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [geoError, setGeoError] = useState('')
+  const [riderPoint, setRiderPoint] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [trackingId, setTrackingId] = useState<string | null>(null)
+
+  const { data, error, isLoading, mutate } = useSWR('rider-api-orders', async () => {
+    const response = await fetch('/api/rider', { cache: 'no-store' })
+    if (!response.ok) throw new Error(response.status === 403 ? 'Sign in with an approved rider account.' : 'Trips could not be loaded.')
+    return response.json() as Promise<{ orders: RiderApiOrder[] }>
+  }, { refreshInterval: 15000 })
+
+  const orders = data?.orders ?? []
+  const available = orders.filter(order => !order.riderName && ['accepted', 'ready'].includes(order.status))
+  const active = orders.filter(order => order.riderName && ['ready', 'picked'].includes(order.status))
+  const activeId = active[0]?.id ?? null
+  const { data: riderTracking } = useSWR(activeId ? `/api/orders/${activeId}/tracking` : null, fetchRiderTracking, { refreshInterval: 8000, shouldRetryOnError: false })
+  const completed = orders.filter(order => order.status === 'delivered')
   const totalEarned = completed.reduce((total, order) => total + order.riderPayout, 0)
-  const averagePayout = completed.length ? totalEarned / completed.length : deliverySlabFor(DEFAULT_DELIVERY_DISTANCE_KM).riderPayout
+  const averagePayout = completed.length ? totalEarned / completed.length : 0
+  const riderName = profile.role === 'rider' && profile.name ? profile.name : 'Delivery partner'
+
+  const sendLocation = useCallback(async (orderId: string, position: GeolocationPosition) => {
+    setRiderPoint({ latitude: position.coords.latitude, longitude: position.coords.longitude })
+    try {
+      await fetch('/api/rider/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          heading: position.coords.heading ?? undefined,
+          speed: position.coords.speed ?? undefined,
+        }),
+      })
+    } catch {
+      // A dropped ping is retried by the interval; never fabricate a position.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeId && trackingId !== activeId) setTrackingId(activeId)
+    if (!activeId && trackingId) setTrackingId(null)
+  }, [activeId, trackingId])
+
+  useEffect(() => {
+    if (!trackingId) return
+    if (!('geolocation' in navigator)) {
+      setGeoError('This browser does not support location sharing.')
+      return
+    }
+    const watch = navigator.geolocation.watchPosition(
+      position => { void sendLocation(trackingId, position) },
+      failure => setGeoError(failure.code === failure.PERMISSION_DENIED
+        ? 'Location permission is blocked. Allow it in your browser settings to share the trip.'
+        : 'GPS is unavailable right now. Keep device location on and stay online.'),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    )
+    const interval = window.setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        position => { void sendLocation(trackingId, position) },
+        () => undefined,
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+      )
+    }, 9000)
+    return () => {
+      navigator.geolocation.clearWatch(watch)
+      window.clearInterval(interval)
+    }
+  }, [sendLocation, trackingId])
+
+  const act = async (orderId: string, action: 'claim' | 'pickup' | 'deliver') => {
+    setBusy(`${orderId}:${action}`)
+    setActionError('')
+    try {
+      const response = await fetch('/api/rider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action }),
+      })
+      if (!response.ok) {
+        const result = await response.json().catch(() => null) as { error?: string } | null
+        throw new Error(result?.error || 'Trip could not be updated.')
+      }
+      await mutate()
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Trip could not be updated.')
+    } finally {
+      setBusy('')
+    }
+  }
 
   return (
     <div className="pb-24">
@@ -486,19 +641,28 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
           </div>
         }
       />
-      <PreviewNote detail="Go online to see demo pickups, accept one trip, then mark it picked up and delivered." />
       <div className="mx-auto max-w-md px-4">
         {tab === 'trips' && (
           <>
             <dl className="mt-4 grid grid-cols-3 gap-2">
-              <Stat label="Trips today" value={String(completed.length)} />
+              <Stat label="Delivered" value={String(completed.length)} />
               <Stat label="Earned" value={rupee(totalEarned)} />
               <Stat label="Avg / trip" value={rupee(averagePayout)} />
             </dl>
 
+            {error && <p role="alert" className="mt-4 rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">{error.message}</p>}
+            {actionError && <p role="alert" className="mt-3 rounded-xl border border-[#F4C7C7] bg-[#FCE8E8] p-3 text-sm text-[#7F1D1D]">{actionError}</p>}
+            {geoError && <p role="alert" className="mt-3 rounded-xl bg-[#FEF3C7] p-3 text-xs text-[#92400E]">{geoError}</p>}
+            {isLoading && <p className="mt-4 text-sm text-muted-ink">Loading trips…</p>}
+
             {active.map(order => {
-              const shop = shopById[order.shopId]
               const picked = order.status === 'picked'
+              const destination = picked ? order.drop : order.pickup
+              const markers = [
+                ...(order.pickup ? [{ id: 'pickup', latitude: order.pickup.latitude, longitude: order.pickup.longitude, label: `${order.shopName} pickup`, color: '#B45309' }] : []),
+                ...(order.drop ? [{ id: 'drop', latitude: order.drop.latitude, longitude: order.drop.longitude, label: 'Customer', color: '#15803D' }] : []),
+                ...(riderPoint ? [{ id: 'rider', latitude: riderPoint.latitude, longitude: riderPoint.longitude, label: 'You', color: '#2563EB' }] : []),
+              ]
               return (
                 <article key={order.id} className="mt-5 rounded-2xl border-2 border-brand bg-white p-4" aria-label={`Active trip ${order.id}`}>
                   <div className="flex items-center justify-between">
@@ -509,81 +673,69 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
                     <li className="flex gap-3">
                       <Store className={cn('mt-0.5 size-4 shrink-0', picked ? 'text-[#15803D]' : 'text-brand-deep')} aria-hidden="true" />
                       <span>
-                        <span className="block font-semibold">Pick up · {shop.name}</span>
-                        <span className="block text-xs text-muted-ink">{order.lines.reduce((s, l) => s + l.qty, 0)} items, packed</span>
+                        <span className="block font-semibold">Pick up · {order.shopName}</span>
+                        <span className="block text-xs text-muted-ink">{order.shopVillage || 'Shop address shared on call'}</span>
                       </span>
                     </li>
                     <li className="flex gap-3">
                       <MapPin className="mt-0.5 size-4 shrink-0 text-brand-deep" aria-hidden="true" />
                       <span>
                         <span className="block font-semibold">Drop · {order.customerName}</span>
-                        <span className="block text-xs text-muted-ink">{order.address || 'Address shared on pickup'}</span>
+                        <span className="block text-xs text-muted-ink">{order.address}</span>
                       </span>
                     </li>
                   </ol>
-                  {!picked ? (
-                    <div className="mt-3 rounded-xl bg-[#FFF8F1] p-3">
-                      <label htmlFor={`pickup-code-${order.id}`} className="text-xs font-semibold">Enter the pickup code from the seller</label>
-                      <input id={`pickup-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
-                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
-                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'pickup', handoffCode); setHandoffError(verified ? '' : 'That code does not match. Ask the seller to confirm the code.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify pickup code</PrimaryButton>
-                    </div>
-                  ) : !order.paymentConfirmed ? (
-                    <div className="mt-3 rounded-xl bg-[#FEF3C7] p-3 text-xs text-[#92400E]">
-                      <p className="font-semibold">Collect {rupee(order.total)} from the customer</p>
-                      <p className="mt-1 leading-5">This preview supports cash confirmation only. Never direct a customer to your personal QR or a third-party QR. An approved in-app payment provider must be connected before digital collection.</p>
-                      <PrimaryButton onClick={() => confirmOrderPayment(order.id)} className="mt-3 h-11">Confirm cash received</PrimaryButton>
-                    </div>
-                  ) : (
-                    <div className="mt-3 rounded-xl bg-[#F0FDF4] p-3">
-                      <p className="text-xs font-semibold text-[#166534]">Payment confirmed · ask the customer for their delivery code</p>
-                      <label htmlFor={`delivery-code-${order.id}`} className="mt-3 block text-xs font-semibold">Customer delivery code</label>
-                      <input id={`delivery-code-${order.id}`} inputMode="numeric" maxLength={4} value={handoffCode} onChange={event => { setHandoffCode(event.target.value.replace(/\\D/g, '').slice(0, 4)); setHandoffError('') }} className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-brand" />
-                      {handoffError && <p role="alert" className="mt-2 text-xs text-[#B91C1C]">{handoffError}</p>}
-                      <PrimaryButton onClick={() => { const verified = verifyOrderOtp(order.id, 'delivery', handoffCode); setHandoffError(verified ? '' : 'Payment must be confirmed and the delivery code must match.'); if (verified) setHandoffCode('') }} className="mt-3 h-11">Verify and complete delivery</PrimaryButton>
-                    </div>
+
+                  {markers.length > 0 && <div className="mt-3"><TrackingMap markers={markers} route={riderTracking?.tracking.route} height={180} fitKey={order.id} /></div>}
+                  {riderTracking?.tracking.etaMinutes != null && (
+                    <p className="mt-2 text-xs font-semibold text-brand-deep">
+                      {riderTracking.tracking.etaTarget === 'pickup' ? 'Pickup' : 'Customer'} ETA · {riderTracking.tracking.etaMinutes} min · road route
+                    </p>
                   )}
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {destination && (
+                      <a href={mapsDirections(destination)} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-line px-3 text-xs font-semibold">
+                        <MapPin className="size-4" aria-hidden="true" /> Open in Google Maps
+                      </a>
+                    )}
+                    {order.shopPhone && !picked && <a href={`tel:${order.shopPhone}`} className="inline-flex min-h-11 items-center rounded-xl border border-line px-3 text-xs font-semibold">Call shop</a>}
+                    {order.customerPhone && picked && <a href={`tel:${order.customerPhone}`} className="inline-flex min-h-11 items-center rounded-xl border border-line px-3 text-xs font-semibold">Call customer</a>}
+                  </div>
+
+                  {!picked ? (
+                    <PrimaryButton disabled={busy === `${order.id}:pickup`} onClick={() => void act(order.id, 'pickup')} className="mt-3 h-11">
+                      {busy === `${order.id}:pickup` ? 'Marking…' : 'Mark picked up'}
+                    </PrimaryButton>
+                  ) : (
+                    <PrimaryButton disabled={busy === `${order.id}:deliver`} onClick={() => void act(order.id, 'deliver')} className="mt-3 h-11">
+                      {busy === `${order.id}:deliver` ? 'Completing…' : 'Mark delivered'}
+                    </PrimaryButton>
+                  )}
+                  <p className="mt-2 text-[10px] leading-4 text-muted-ink">Location is shared only while this trip is active. Cash collection is not enabled in this build.</p>
                 </article>
               )
             })}
-
-            {pendingSellerDeposits.length > 0 && (
-              <section aria-labelledby="seller-remittance" className="mt-5 rounded-2xl border border-[#FED7AA] bg-[#FFF7ED] p-4">
-                <h2 id="seller-remittance" className="text-sm font-bold text-[#9A3412]">Settle with the seller before another trip</h2>
-                <p className="mt-1 text-xs leading-5 text-[#9A3412]">Return the order value collected for the seller. Your trip payout stays separate.</p>
-                {pendingSellerDeposits.map(order => (
-                  <div key={order.id} className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-xs">
-                    <span>#{order.id} · seller amount <strong>{rupee(order.itemTotal)}</strong></span>
-                    <button type="button" onClick={() => remitOrderToSeller(order.id)} className="min-h-10 rounded-lg bg-brand px-3 font-semibold text-white">Deposit returned</button>
-                  </div>
-                ))}
-                <p className="mt-2 text-[10px] leading-4 text-muted-ink">Demo confirmation only; no funds move or deposit is verified in this preview.</p>
-              </section>
-            )}
 
             <section aria-labelledby="available" className="mt-5">
               <h2 id="available" className="text-sm font-bold">Available pickups</h2>
               <div className="mt-2 flex flex-col gap-2.5">
                 {!online ? (
-                  <Empty Icon={Power} title="You are offline" detail="Go online to see orders that are packed and ready near you." />
+                  <Empty Icon={Power} title="You are offline" detail="Go online to see orders that are packed and ready." />
                 ) : available.length === 0 ? (
-                  <Empty Icon={Bike} title="No pickups right now" detail="Demo pickups appear when the sample shop marks an order packed. Accepting one changes only this preview." />
-                ) : (
-                  available.map(order => (
-                    <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-bold">{shopById[order.shopId].name}</p>
-                        <p className="text-sm font-bold text-[#15803D]">+{rupee(order.riderPayout)}</p>
-                      </div>
-                      <p className="text-xs text-muted-ink">
-                        #{order.id} · drop at {order.address || 'nearby'}
-                      </p>
-                      <PrimaryButton onClick={() => setOrderStatus(order.id, 'ready', riderName)} disabled={active.length > 0 || pendingSellerDeposits.length > 0} className="mt-3 h-10 text-xs">
-                        {active.length > 0 ? 'Finish your active trip first' : pendingSellerDeposits.length > 0 ? 'Return seller cash first' : 'Accept trip'}
-                      </PrimaryButton>
-                    </article>
-                  ))
-                )}
+                  <Empty Icon={Bike} title="No pickups right now" detail="Packed orders appear here in real time." />
+                ) : available.map(order => (
+                  <article key={order.id} className="rounded-2xl border border-line bg-white p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold">{order.shopName}</p>
+                      <p className="text-sm font-bold text-[#15803D]">+{rupee(order.riderPayout)}</p>
+                    </div>
+                    <p className="text-xs text-muted-ink">#{order.id} · {order.routeDistanceKm == null ? 'Distance unavailable' : `${order.routeDistanceKm} km`} · drop at {order.address || 'nearby'}</p>
+                    <PrimaryButton onClick={() => void act(order.id, 'claim')} disabled={Boolean(activeId) || busy === `${order.id}:claim`} className="mt-3 h-10 text-xs">
+                      {activeId ? 'Finish your active trip first' : busy === `${order.id}:claim` ? 'Accepting…' : 'Accept trip'}
+                    </PrimaryButton>
+                  </article>
+                ))}
               </div>
             </section>
           </>
@@ -593,27 +745,22 @@ export function RiderDashboard({ onExit }: { onExit: () => void }) {
           <section className="mt-4" aria-labelledby="earnings-heading">
             <h2 id="earnings-heading" className="text-sm font-bold">Earnings</h2>
             <div className="mt-2 rounded-2xl bg-ink p-5 text-white">
-              <p className="text-xs text-white/70">Today</p>
+              <p className="text-xs text-white/70">Delivered trips</p>
               <p className="text-3xl font-bold">{rupee(totalEarned)}</p>
-              <p className="mt-1 text-xs text-white/70">
-                {completed.length} delivered trips · payout varies by distance
-              </p>
+              <p className="mt-1 text-xs text-white/70">{completed.length} trips · payout varies by distance</p>
             </div>
             <ul className="mt-3 flex flex-col gap-2">
-              {completed.length === 0 && <Empty Icon={IndianRupee} title="No completed trips yet" detail="Each delivered order adds ₹20 here." />}
-              {completed.map(o => (
-                <li key={o.id} className="flex items-center justify-between rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
-                  <span>
-                    #{o.id} · {shopById[o.shopId].name}
-                  </span>
-                  <span className="font-semibold text-[#15803D]">+{rupee(o.riderPayout)}</span>
+              {completed.length === 0 && <Empty Icon={IndianRupee} title="No completed trips yet" detail="Delivered orders appear here." />}
+              {completed.map(order => (
+                <li key={order.id} className="flex items-center justify-between rounded-xl border border-line bg-white px-3 py-2.5 text-sm">
+                  <span>#{order.id} · {order.shopName}</span>
+                  <span className="font-semibold text-[#15803D]">+{rupee(order.riderPayout)}</span>
                 </li>
               ))}
             </ul>
           </section>
         )}
 
-        {tab === 'earnings' && <RiderEarningsSimulator />}
         {tab === 'account' && <PartnerAccount role="Delivery partner" onExit={onExit} />}
       </div>
       <BottomNav

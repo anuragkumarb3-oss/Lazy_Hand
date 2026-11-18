@@ -47,7 +47,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} light`}>
       <body className="bg-cream font-sans antialiased">
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {process.env.VERCEL_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )

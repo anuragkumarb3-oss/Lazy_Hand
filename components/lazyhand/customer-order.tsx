@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { LiveTrackingPanel } from './live-tracking'
 import {
   Banknote,
   Bike,
@@ -12,8 +13,10 @@ import {
   MapPin,
   Package,
   Phone,
+  QrCode,
   Receipt,
   RefreshCw,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Store,
@@ -22,9 +25,10 @@ import {
 import { Lottie } from 'lottie-react'
 import orderSuccessAnimation from '../../public/animations/order-success.json'
 import { cn } from '@/lib/utils'
-import { billFor, FREE_DELIVERY_THRESHOLD, rupee, type Order, type OrderStatus, type Role } from './data'
+import { billFor, FREE_DELIVERY_THRESHOLD, rupee, type Order, type OrderStatus, type Payment, type Role } from './data'
 import { useLazyHand } from './store'
 import { BackButton, PrimaryButton, ProductTile, QtyControl, SecondaryButton, StatusPill } from './ui'
+import { UpiPayPanel } from './upi-pay'
 
 function TopBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
@@ -89,6 +93,9 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
   const { cartLines, cartTotal, cart, shopById, products, addItem, removeItem } = useLazyHand()
   const storeIds = Array.from(new Set(cartLines.map(({ product }) => product.shopId)))
   const multiStore = storeIds.length > 1
+  const isDemoCart = cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly)
+  const deliveryDistanceKm = cart.deliveryDistanceKm
+  const cartBill = billFor(cartTotal, deliveryDistanceKm, false, { multiStore })
   if (!cartLines.length || !cart.shopId) {
     return (
       <div className="flex min-h-svh flex-col">
@@ -186,19 +193,23 @@ export function CartScreen({ onBack, onCheckout, onBrowse }: { onBack: () => voi
           ) : null
         })()}
 
-        <section className="rounded-2xl border border-[#FECACA] bg-[#FFF7F7] p-3.5" aria-label="Delivery route status" role="status">
-          <p className="text-xs font-semibold text-[#991B1B]">We can&apos;t confirm the delivery route yet. Checkout is paused until route calculation is configured.</p>
+        <section className={cn('rounded-2xl border p-3.5', isDemoCart ? 'border-[#E5E7EB] bg-white' : 'border-[#FDE68A] bg-[#FFFBEB]')} aria-label="Delivery route status" role="status">
+          <p className={cn('text-xs font-semibold', isDemoCart ? 'text-muted-ink' : 'text-[#92400E]')}>
+            {isDemoCart
+              ? `Preview delivery estimate for a ${deliveryDistanceKm} km sample distance. This test order is not sent to a shop.`
+              : `Delivery fee estimated for ${deliveryDistanceKm} km. The final road distance is confirmed at checkout.`}
+          </p>
         </section>
 
         <section className="rounded-2xl border border-line bg-white p-4" aria-labelledby="bill-heading">
           <h2 id="bill-heading" className="mb-3 text-sm font-bold">Bill details</h2>
-          <BillRows itemTotal={cartTotal} distanceKm={null} multiStore={multiStore} />
+          <BillRows itemTotal={cartTotal} distanceKm={deliveryDistanceKm} multiStore={multiStore} />
         </section>
       </div>
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
-          <PrimaryButton onClick={onCheckout} disabled>
-            Checkout unavailable
+          <PrimaryButton onClick={onCheckout}>
+            Proceed to checkout · {rupee(cartBill.total)}
           </PrimaryButton>
         </div>
       </div>
@@ -215,18 +226,90 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
   const [isPlacing, setIsPlacing] = useState(false)
   const [isSavingOrder, setIsSavingOrder] = useState(false)
   const [isTestOrder, setIsTestOrder] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<Payment>('cod')
+  const [upiEnabled, setUpiEnabled] = useState(false)
+  const [upiOrders, setUpiOrders] = useState<Order[] | null>(null)
   const isDemoOrder = cartLines.length > 0 && cartLines.every(({ product }) => product.demoOnly)
   const deliveryAddress = profile.village || (isDemoOrder && area === 'Set your location' ? 'Preview sample address' : area)
   const address = [deliveryAddress, profile.landmark].filter(Boolean).join(', ')
   const addressMissing = !address || address === 'Set your location'
   const shop = cart.shopId ? shopById[cart.shopId] : null
-  const deliveryDistanceKm: number | null = null
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(isDemoOrder ? cart.deliveryDistanceKm : null)
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeError, setRouteError] = useState('')
+  const quoteFingerprint = JSON.stringify({ address, stores: cartLines.map(({ product, qty }) => [product.shopId, product.id, qty]) })
 
-  const place = async () => {
-    if (deliveryDistanceKm === null) {
-      setError('Delivery route distance cannot be confirmed yet. Checkout is temporarily unavailable.')
+  useEffect(() => {
+    let cancelled = false
+    void fetch('/api/upi/config', { cache: 'no-store' })
+      .then(response => response.json().catch(() => null) as Promise<{ enabled?: boolean } | null>)
+      .then(data => { if (!cancelled) setUpiEnabled(Boolean(data?.enabled)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (isDemoOrder) {
+      setRouteDistanceKm(cart.deliveryDistanceKm)
+      setRouteError('')
+      setRouteLoading(false)
       return
     }
+    if (!canPlaceOrder || addressMissing) {
+      setRouteDistanceKm(null)
+      setRouteLoading(false)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      setRouteLoading(true)
+      setRouteError('')
+      const coordinates = await new Promise<{ deliveryLatitude: number; deliveryLongitude: number } | null>(resolve => {
+        if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return resolve(null)
+        navigator.geolocation.getCurrentPosition(
+          position => resolve({ deliveryLatitude: position.coords.latitude, deliveryLongitude: position.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 5 * 60 * 1000 },
+        )
+      })
+      const stores = Array.from(cartLines.reduce((groups, { product, qty }) => {
+        const group = groups.get(product.shopId) ?? { shopId: product.shopId, lines: [] as { productId: string; qty: number }[] }
+        group.lines.push({ productId: product.id, qty })
+        groups.set(product.shopId, group)
+        return groups
+      }, new Map<string, { shopId: string; lines: { productId: string; qty: number }[] }>()).values())
+      try {
+        const response = await fetch('/api/orders?quote=1', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, stores, deliveryDistanceKm: cart.deliveryDistanceKm, ...(coordinates ?? {}) }),
+        })
+        const data = await response.json().catch(() => null) as { distanceKm?: number; error?: string } | null
+        if (cancelled) return
+        const distance = Number(data?.distanceKm)
+        if (!response.ok || !Number.isFinite(distance) || distance <= 0) {
+          setRouteDistanceKm(null)
+          setRouteError(data?.error ?? 'We could not confirm the road distance for this address.')
+        } else {
+          setRouteDistanceKm(distance)
+          setRouteError('')
+        }
+      } catch {
+        if (!cancelled) {
+          setRouteDistanceKm(null)
+          setRouteError('We could not reach the delivery route service. Check your connection and try again.')
+        }
+      } finally {
+        if (!cancelled) setRouteLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+    // The fingerprint changes only when the address or cart contents change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoOrder, canPlaceOrder, addressMissing, quoteFingerprint, cart.deliveryDistanceKm])
+
+  const place = async () => {
     if (addressMissing) {
       setError('Add a delivery address before placing the order')
       return
@@ -239,10 +322,14 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
     setIsTestOrder(isDemoOrder)
     setIsSavingOrder(true)
     try {
-      const order = await placeOrder('cod', address)
-      if (order) {
-        setPlacedOrder(order)
-        setIsPlacing(true)
+      const placed = await placeOrder(paymentMethod, address)
+      if (placed.length) {
+        if (paymentMethod === 'upi' && !isDemoOrder) {
+          setUpiOrders(placed)
+        } else {
+          setPlacedOrder(placed[0])
+          setIsPlacing(true)
+        }
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Your order could not be saved. Please try again.')
@@ -250,6 +337,8 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
       setIsSavingOrder(false)
     }
   }
+
+  if (upiOrders) return <UpiPayPanel orders={upiOrders} onContinue={() => onPlaced(upiOrders[0])} />
 
   if (isPlacing && placedOrder) return (
     <main className="flex min-h-svh flex-col items-center justify-center px-6 text-center" aria-live="polite" aria-atomic="true">
@@ -293,20 +382,57 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
 
         {!multiStore && <DeliveryGoal itemTotal={cartTotal} />}
         {multiStore && <p className="rounded-2xl border border-line bg-white p-3 text-xs text-muted-ink">Items from {storeIds.length} shops are grouped into one checkout.</p>}
-        <section className="rounded-2xl border border-[#FECACA] bg-[#FFF7F7] p-3.5" aria-label="Delivery route status" role="status">
-          <p className="text-xs font-semibold text-[#991B1B]">We can&apos;t confirm the delivery route yet. Checkout is paused until route calculation is configured.</p>
+        <section className={cn('rounded-2xl border p-3.5', isDemoOrder || routeDistanceKm || routeLoading ? 'border-[#BBF7D0] bg-[#F0FDF4]' : 'border-[#FECACA] bg-[#FFF7F7]')} aria-label="Delivery route status" role="status">
+          <p className={cn('text-xs font-semibold', isDemoOrder || routeDistanceKm || routeLoading ? 'text-[#166534]' : 'text-[#991B1B]')}>
+            {isDemoOrder
+              ? `Preview delivery estimate for a ${cart.deliveryDistanceKm} km sample distance. This test order stays in this session.`
+              : routeLoading
+                ? 'Checking the road distance to your address…'
+                : routeError
+                  ? routeError
+                  : routeDistanceKm
+                    ? `Road route confirmed · ${routeDistanceKm.toFixed(1)} km`
+                    : 'Delivery route is not confirmed yet.'}
+          </p>
         </section>
 
-        <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="pay-heading">
+<section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]" aria-labelledby="pay-heading">
           <h2 id="pay-heading" className="mb-2 text-sm font-bold">Payment</h2>
-          <div className="flex items-center gap-3 rounded-xl border border-brand bg-[#FFF5EC] p-3">
-            <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
-            <div>
-              <p className="text-sm font-semibold">Cash on delivery</p>
-              <p className="text-xs text-muted-ink">{isDemoOrder ? 'Preview only: this test checkout does not charge you or notify a shop.' : 'Pay the rider in cash. Paytm and other digital payment options aren&apos;t connected in this preview.'}</p>
-            </div>
-            <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" />
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setPaymentMethod('cod')}
+              aria-pressed={paymentMethod === 'cod'}
+              className={cn('flex items-center gap-3 rounded-xl border p-3 text-left', paymentMethod === 'cod' ? 'border-brand bg-[#FFF5EC]' : 'border-line bg-white')}
+            >
+              <Banknote className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Cash on delivery</p>
+                <p className="text-xs text-muted-ink">Pay the rider in cash on arrival.</p>
+              </div>
+              {paymentMethod === 'cod' ? <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" /> : null}
+            </button>
+            <button
+              type="button"
+              disabled={!upiEnabled}
+              onClick={() => setPaymentMethod('upi')}
+              aria-pressed={paymentMethod === 'upi'}
+              className={cn('flex items-center gap-3 rounded-xl border p-3 text-left disabled:opacity-60', paymentMethod === 'upi' ? 'border-brand bg-[#FFF5EC]' : 'border-line bg-white')}
+            >
+              <QrCode className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">UPI</p>
+                <p className="text-xs text-muted-ink">{upiEnabled ? 'Scan a QR and pay from any UPI app.' : 'UPI is not enabled in this preview.'}</p>
+              </div>
+              {paymentMethod === 'upi' ? <Check className="ml-auto size-4 shrink-0 text-brand-deep" aria-hidden="true" /> : null}
+            </button>
           </div>
+          {paymentMethod === 'upi' && !isDemoOrder ? (
+            <p className="mt-2 text-xs leading-5 text-muted-ink">You&apos;ll get a QR after placing the order. Payment is verified against our bank before fulfilment — a screenshot is not accepted as proof.</p>
+          ) : null}
+          {paymentMethod === 'cod' && isDemoOrder ? (
+            <p className="mt-2 text-xs leading-5 text-muted-ink">Preview only: this test checkout does not charge you or notify a shop.</p>
+          ) : null}
         </section>
 
         <section className="rounded-3xl border border-line bg-white p-4 shadow-[0_6px_22px_-18px_#6B4A34]">
@@ -321,7 +447,7 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
               </li>
             ))}
           </ul>
-          <BillRows itemTotal={cartTotal} distanceKm={null} multiStore={multiStore} />
+          <BillRows itemTotal={cartTotal} distanceKm={routeDistanceKm} multiStore={multiStore} />
         </section>
         {error && (
           <p role="alert" className="rounded-xl bg-[#FEF2F2] p-3 text-sm text-[#991B1B]">
@@ -332,10 +458,15 @@ export function PaymentScreen({ area, onBack, onPlaced, onEditAddress, canPlaceO
       <div className="fixed inset-x-0 bottom-0 border-t border-line bg-white px-4 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
         <div className="mx-auto max-w-md">
           {canPlaceOrder ? (
-            <PrimaryButton onClick={() => void place()} disabled>{isSavingOrder ? 'Saving order…' : 'Checkout unavailable'}</PrimaryButton>
+            <PrimaryButton
+              onClick={() => void place()}
+              disabled={isSavingOrder || routeLoading || (!isDemoOrder && routeDistanceKm === null)}
+            >
+              {isSavingOrder ? 'Saving order…' : isDemoOrder ? 'Place test order' : routeLoading ? 'Checking delivery route…' : routeDistanceKm === null ? 'Route unavailable' : 'Place order'}
+            </PrimaryButton>
           ) : (
             <div className="flex flex-col gap-2">
-              <p className="text-center text-xs leading-5 text-muted-ink">Sign in is available, but checkout stays paused until the delivery route can be confirmed.</p>
+              <p className="text-center text-xs leading-5 text-muted-ink">Sign in to confirm your delivery route and place the order.</p>
               <PrimaryButton onClick={onSignIn}>Sign in</PrimaryButton>
             </div>
           )}
@@ -365,23 +496,10 @@ export function TrackingScreen({ orderId, onBack, onViewAs }: { orderId: string;
   return (
     <div className="flex min-h-svh flex-col pb-10">
       <TopBar title={`Order #${order.id}`} onBack={onBack} />
-      <div className="relative h-44 overflow-hidden bg-[#F3EDE4]" aria-hidden="true">
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,#E9E1D6_1px,transparent_1px),linear-gradient(#E9E1D6_1px,transparent_1px)] bg-[size:28px_28px]" />
-        <div className="absolute left-[18%] right-[18%] top-1/2 border-t-[3px] border-dashed border-brand" />
-        <span className="absolute left-[12%] top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-white text-brand-deep shadow">
-          <Store className="size-5" />
-        </span>
-        <span
-          className="absolute top-1/2 grid size-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-brand text-white shadow-lg transition-all duration-700"
-          style={{ left: `${18 + (Math.max(current, 0) / 4) * 64}%` }}
-        >
-          <Bike className="size-5" />
-        </span>
-        <span className="absolute right-[12%] top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-white text-[#15803D] shadow">
-          <Home className="size-5" />
-        </span>
+      <div className="px-4 pt-4">
+        <LiveTrackingPanel orderId={order.id} height={220} />
       </div>
-      <div className="mx-auto -mt-6 flex w-full max-w-md flex-col gap-3 px-4">
+      <div className="mx-auto mt-3 flex w-full max-w-md flex-col gap-3 px-4">
         <section className="rounded-2xl border border-line bg-white p-4 shadow-sm" aria-live="polite">
           {rejected ? (
             <>
@@ -541,15 +659,15 @@ export function OrderAgainScreen({ onTrack, onReordered }: { onTrack: (id: strin
   )
 }
 
-export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAddress }: { area: string; onSwitchRole: (role: Role) => void; onLogout: () => void; onOrders: () => void; onEditAddress: () => void }) {
+export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAddress, isOwner = false }: { area: string; onSwitchRole: (role: Role) => void; onLogout: () => void; onOrders: () => void; onEditAddress: () => void; isOwner?: boolean }) {
   const { profile, orders } = useLazyHand()
   const name = profile.name || 'Guest'
   const delivered = orders.filter(o => o.status === 'delivered').length
   const rows = [
     { label: 'Saved address', detail: [profile.village || area, profile.landmark].filter(Boolean).join(', '), Icon: MapPin, onClick: onEditAddress },
     { label: 'Your orders', detail: `${orders.length} orders`, Icon: Package, onClick: onOrders },
-    { label: 'Become a shopkeeper', detail: 'Manage a shop and accept orders', Icon: Store, onClick: () => onSwitchRole('shopkeeper') },
-    { label: 'Become a delivery partner', detail: 'Apply to deliver local shop orders', Icon: Bike, onClick: () => onSwitchRole('rider') },
+    { label: isOwner ? 'Seller dashboard' : 'Become a shopkeeper', detail: isOwner ? 'Owner access to manage any shop' : 'Manage a shop and accept orders', Icon: Store, onClick: () => onSwitchRole('shopkeeper') },
+    { label: isOwner ? 'Rider dashboard' : 'Become a delivery partner', detail: isOwner ? 'Owner access to the delivery queue' : 'Apply to deliver local shop orders', Icon: Bike, onClick: () => onSwitchRole('rider') },
   ]
   return (
     <div className="pb-28">
@@ -559,6 +677,7 @@ export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAd
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold">{name}</h1>
             <p className="text-xs text-white/90">{profile.phone ? `+91 ${profile.phone}` : 'Not signed in'}</p>
+            {isOwner && <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold"><ShieldCheck className="size-3" aria-hidden="true" /> Owner · all access</span>}
           </div>
         </div>
       </header>
@@ -574,6 +693,18 @@ export function ProfileScreen({ area, onSwitchRole, onLogout, onOrders, onEditAd
           </div>
         </dl>
         <ul className="mt-4 overflow-hidden rounded-2xl border border-line bg-white">
+          {isOwner && (
+            <li className="border-b border-line">
+              <a href="/admin" className="flex w-full items-center gap-3 bg-[#FFF7ED] px-4 py-3.5 text-left">
+                <ShieldCheck className="size-5 shrink-0 text-brand-deep" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">Admin console</span>
+                  <span className="block truncate text-xs text-muted-ink">Owner access · orders, users, riders, catalog</span>
+                </span>
+                <ChevronRight className="size-4 text-muted-ink" aria-hidden="true" />
+              </a>
+            </li>
+          )}
           {rows.map(({ label, detail, Icon, onClick }) => (
             <li key={label} className="border-b border-line last:border-b-0">
               <button type="button" onClick={onClick} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
